@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  wa-bot:
+    build: .
+    container_name: duty-whatsapp-bot
+    volumes:
+      - .:/app
+      - bot-session:/app/.wwebjs_auth
+    environment:
+      - SEND_TIME=${SEND_TIME:-18:00}
+      - GROUP_NAME=${GROUP_NAME:-VSEC AVADH OFFICIAL}
+    stdin_open: true
+    tty: true
+
+volumes:
+  bot-session:

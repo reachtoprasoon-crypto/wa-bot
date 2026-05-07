@@ -1,0 +1,28 @@
+{
+  "name": "duty-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Posts the next day's duty roster to a WhatsApp group at a scheduled time",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "send-now": "node send-now.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "duty",
+    "roster",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "dotenv": "^16.0.0",
+    "express": "^5.2.1",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
