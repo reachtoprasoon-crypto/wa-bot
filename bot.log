@@ -1,0 +1,37 @@
+
+> duty-whatsapp-bot@1.0.0 start
+> node index.js
+
+Client authenticated!
+Client is ready!
+Bot authenticated and connected to WhatsApp.
+Scheduling message send at 23:00 for group: Unme
+---
+[7/5/2026, 10:56:51 pm] Scheduler started - will send at 23:00 IST daily
+Configuration interface available at http://localhost:3000
+WhatsApp client state: CONNECTED
+[7/5/2026, 11:00:51 pm] Scheduler check - Current IST: 23:00, Target: 23:00
+[7/5/2026, 11:00:51 pm] Time matched! Sending scheduled message...
+[7/5/2026, 11:00:51 pm] Attempting to send message to group: "Unme"
+Read 65 duties from CSV
+Filtered 4 duties for tomorrow (08-05-2026)
+Message to send:
+📋 *Tomorrow's Morning Duty * 📋
+
+1. Ms. A. Chatterjee
+2. Ms. R. Trivedi
+3. Ms. M. Rastogi
+4. Ms. V. Agarwal
+
+---
+⏰ Above teachers must reach the school at 6:45 a.m. ⏰
+---
+Error sending message: Attempted to use detached Frame 'D09DDBFBA4A97CF3C79023E5A912AB38'.
+Full error: Error: Attempted to use detached Frame 'D09DDBFBA4A97CF3C79023E5A912AB38'.
+    at CdpFrame.<anonymous> (/workspaces/wa-bot/node_modules/puppeteer-core/lib/cjs/puppeteer/util/decorators.js:107:23)
+    at CdpPage.evaluate (/workspaces/wa-bot/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:830:43)
+    at Client.getChats (/workspaces/wa-bot/node_modules/whatsapp-web.js/src/Client.js:1669:42)
+    at sendDutyMessage (/workspaces/wa-bot/index.js:166:32)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[7/5/2026, 11:01:51 pm] Scheduler check - Current IST: 23:01, Target: 23:00
+[7/5/2026, 11:02:5[7/5/2026, 11:10:02 pm] Scheduler check - Current IST: 23:[7/5/2026, 11:10:5[7/5/2026, 11:20:02 pm] Scheduler check - Current IST: 23:[7/5/2026, 11:20:5[7/5/2026, 11:30:03 pm] Scheduler check - Current IST: 23:[7/5/2026, 11:30:52 pm] Scheduler check - Current IST: 23:30, Target: 23:00

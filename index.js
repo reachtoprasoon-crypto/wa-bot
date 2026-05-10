@@ -9,6 +9,35 @@ require('dotenv').config();
 const CONFIG_FILE = 'config.json';
 const DUTY_FILE = 'duty.csv';
 
+/**
+ * Get current time in IST (Indian Standard Time)
+ */
+function getISTTime() {
+  return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+}
+
+/**
+ * Get current time in IST as HH:MM:SS format
+ */
+function getISTTimeString() {
+  return new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+}
+
+/**
+ * Get tomorrow's date in IST (DD-MM-YYYY format)
+ */
+function getTomorrowDateIST() {
+  // Get current date in IST timezone
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+  const istNow = new Date(now.getTime() + istOffset);
+  
+  // Add one day
+  istNow.setDate(istNow.getDate() + 1);
+  
+  return `${String(istNow.getDate()).padStart(2, '0')}-${String(istNow.getMonth() + 1).padStart(2, '0')}-${istNow.getFullYear()}`;
+}
+
 // Load configuration
 function loadConfig() {
   try {
@@ -123,9 +152,74 @@ function formatDutyMessage(duties) {
   
   let message = config.messageFormat
     .replace('{{duties}}', dutiesText.trim())
-    .replace('{{time}}', new Date().toLocaleTimeString());
+    .replace('{{time}}', getISTTimeString());
   
   return message;
+}
+
+/**
+ * Format personal message for a teacher
+ */
+function formatPersonalMessage(teacher, dutyDate) {
+  const teacherName = (teacher.Teacher || teacher.name || 'Teacher').split(' ')[0]; // Get first name
+  return `👋 Hi ${teacherName},\n\nYou have been assigned morning duty tomorrow, that is on ${dutyDate}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at ${getISTTimeString()}\n\nIts a computer generated message, no need to reply.`;
+}
+
+/**
+ * Send personal messages to all teachers
+ */
+async function sendPersonalMessages(duties) {
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const duty of duties) {
+    try {
+      const phone = duty.Phone?.trim();
+      const teacherName = duty.Teacher || duty.name || 'N/A';
+      
+      if (!phone) {
+        console.log(`⚠️  Skipping ${teacherName} - no phone number found`);
+        failureCount++;
+        continue;
+      }
+
+      // Format phone number for WhatsApp - ensure country code is present
+      let phoneFormatted = phone.replace(/\D/g, ''); // Remove non-digits
+      
+      // If phone number is 10 digits (Indian without country code), add country code 91
+      if (phoneFormatted.length === 10) {
+        phoneFormatted = '91' + phoneFormatted;
+        console.log(`⚠️  Phone number for ${teacherName} was missing country code, added it: ${phoneFormatted}`);
+      } else if (!phoneFormatted.startsWith('91') && phoneFormatted.length === 12) {
+        // If it's 12 digits but doesn't start with 91, it might be in wrong format
+        console.log(`⚠️  Phone number for ${teacherName} doesn't start with 91: ${phoneFormatted}`);
+      }
+      
+      const chatId = `${phoneFormatted}@c.us`;
+      
+      const personalMessage = formatPersonalMessage(duty, duty.Duty);
+      console.log(`Sending personal message to ${teacherName} (${phoneFormatted})`);
+      
+      // Send personal message
+      const result = await client.sendMessage(chatId, personalMessage);
+      console.log(`✓ Personal message sent to ${teacherName}`);
+      console.log(`  Message ID: ${result.id.id}`);
+      successCount++;
+      
+      // Add small delay between messages to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (error) {
+      const teacherName = duty.Teacher || duty.name || 'N/A';
+      console.error(`✗ Failed to send message to ${teacherName}: ${error.message}`);
+      console.error(`  Error details:`, error);
+      failureCount++;
+    }
+  }
+  
+  console.log(`\n📊 Personal Messages Summary:`);
+  console.log(`✓ Sent: ${successCount}`);
+  console.log(`✗ Failed: ${failureCount}`);
+  return { successCount, failureCount };
 }
 
 /**
@@ -133,15 +227,13 @@ function formatDutyMessage(duties) {
  */
 async function sendDutyMessage() {
   try {
-    console.log(`[${new Date().toLocaleString()}] Attempting to send message to group: "${config.groupName}"`);
+    console.log(`[${getISTTime()}] Attempting to send message to group: "${config.groupName}"`);
     
     const duties = await readDutyRoster();
     console.log(`Read ${duties.length} duties from CSV`);
     
-    // Calculate tomorrow's date in DD-MM-YYYY format
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${tomorrow.getFullYear()}`;
+    // Calculate tomorrow's date in DD-MM-YYYY format (IST timezone)
+    const tomorrowStr = getTomorrowDateIST();
     
     // Filter duties for tomorrow
     const tomorrowDuties = duties.filter(duty => duty.Duty === tomorrowStr);
@@ -184,9 +276,13 @@ async function sendDutyMessage() {
       });
       
       const result = await client.sendMessage(targetChat.id._serialized, message);
-      console.log(`✓ Message sent successfully at ${new Date().toLocaleString()}!`);
+      console.log(`✓ Group message sent successfully at ${getISTTime()}!`);
       console.log(`Message ID: ${result.id.id}`);
       console.log(`Message sent to chat ID: ${targetChat.id._serialized}`);
+      
+      // Send personal messages to teachers with duties
+      console.log('\n📤 Sending personal messages to teachers...');
+      await sendPersonalMessages(tomorrowDuties);
     } else {
       console.error(`Group "${config.groupName}" not found.`);
       console.error('Available chats:', chats.map(c => ({ name: c.name, isGroup: c.isGroup, id: c.id._serialized })));
@@ -352,7 +448,7 @@ app.post('/send-test', async (req, res) => {
       return res.status(400).json({ error: 'Phone number required' });
     }
     
-    const testMessage = `[TEST] WhatsApp Bot is working! Sent at ${new Date().toLocaleString()}`;
+    const testMessage = `[TEST] WhatsApp Bot is working! Sent at ${getISTTime()}`;
     const chatId = phone + '@c.us';
     
     await client.sendMessage(chatId, testMessage);
@@ -364,7 +460,7 @@ app.post('/send-test', async (req, res) => {
 
 app.post('/send-to-group', async (req, res) => {
   try {
-    const testMessage = `[TEST] Sending to group at ${new Date().toLocaleString()}`;
+    const testMessage = `[TEST] Sending to group at ${getISTTime()}`;
 
     const chats = await client.getChats();
     let targetChat;
