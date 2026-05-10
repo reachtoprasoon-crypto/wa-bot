@@ -161,7 +161,8 @@ function formatDutyMessage(duties) {
  * Format personal message for a teacher
  */
 function formatPersonalMessage(teacher, dutyDate) {
-  const teacherName = (teacher.Teacher || teacher.name || 'Teacher').split(' ')[0]; // Get first name
+  const tn=(teacher.Teacher || teacher.name || 'Teacher')
+  const teacherName = tn; // Get whole name
   return `👋 Hi ${teacherName},\n\nYou have been assigned morning duty tomorrow, that is on ${dutyDate}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at ${getISTTimeString()}\n\nIts a computer generated message, no need to reply.`;
 }
 
