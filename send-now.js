@@ -25,12 +25,8 @@ function getISTTimeString() {
  * Get tomorrow's date in IST (DD-MM-YYYY format)
  */
 function getTomorrowDateIST() {
-  // Get current date in IST timezone
   const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-  const istNow = new Date(now.getTime() + istOffset);
-  
-  // Add one day
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   istNow.setDate(istNow.getDate() + 1);
   
   return `${String(istNow.getDate()).padStart(2, '0')}-${String(istNow.getMonth() + 1).padStart(2, '0')}-${istNow.getFullYear()}`;
@@ -43,12 +39,13 @@ function loadConfig() {
     return JSON.parse(configData);
   } catch (error) {
     console.log('Config file not found, using defaults');
-    return {
-      sendTime: process.env.SEND_TIME || '18:00',
-      groupName: process.env.GROUP_NAME || 'VSEC AVADH OFFICIAL',
-      groupId: process.env.GROUP_ID || '',
-      messageFormat: "📋 *Tomorrow's Duty Roster* 📋\n\n{{duties}}\n\n---\n⏰ Sent at {{time}}"
-    };
+  return {
+    sendTime: process.env.SEND_TIME || '18:00',
+    groupName: process.env.GROUP_NAME || 'VSEC AVADH OFFICIAL',
+    groupId: process.env.GROUP_ID || '',
+    messageFormat: "📋 *Tomorrow's Duty Roster* 📋\n\n{{duties}}\n\n---\n⏰ Sent at {{time}}",
+    personalMessageFormat: "👋 Hi {{teacherName}},\n\nYou have been assigned morning duty tomorrow, that is on {{dutyDate}}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at {{time}}\n\nIts a computer generated message, no need to reply."
+  };
   }
 }
 
@@ -117,11 +114,25 @@ function formatDutyMessage(duties) {
 }
 
 /**
- * Format personal message for a teacher
+ * Format personal message for a teacher using config template
  */
 function formatPersonalMessage(teacher, dutyDate) {
-  const teacherName = (teacher.Teacher || teacher.name || 'Teacher').split(' ')[0]; // Get first name
-  return `👋 Hi ${teacherName},\n\nYou have been assigned morning duty tomorrow, that is on ${dutyDate}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at ${getISTTimeString()}\n\nIts a computer generated message, no need to reply.`;
+  let fullName = teacher.Teacher || teacher.name || 'Teacher';
+  const parts = fullName.split(' ');
+  let teacherName = parts[0];
+  const titles = ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
+  if (titles.includes(teacherName)) {
+    teacherName = parts[1] || parts[0];
+  }
+
+  let message = config.personalMessageFormat || `👋 Hi {{teacherName}},\n\nYou have been assigned morning duty tomorrow, that is on ${dutyDate}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at ${getISTTimeString()}\n\nIts a computer generated message, no need to reply.`;
+
+  message = message
+    .replace(/\{\{teacherName\}\}/g, teacherName)
+    .replace(/\{\{dutyDate\}\}/g, dutyDate)
+    .replace(/\{\{time\}\}/g, getISTTimeString());
+
+  return message;
 }
 
 /**

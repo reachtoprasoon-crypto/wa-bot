@@ -27,12 +27,8 @@ function getISTTimeString() {
  * Get tomorrow's date in IST (DD-MM-YYYY format)
  */
 function getTomorrowDateIST() {
-  // Get current date in IST timezone
   const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-  const istNow = new Date(now.getTime() + istOffset);
-  
-  // Add one day
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   istNow.setDate(istNow.getDate() + 1);
   
   return `${String(istNow.getDate()).padStart(2, '0')}-${String(istNow.getMonth() + 1).padStart(2, '0')}-${istNow.getFullYear()}`;
@@ -58,6 +54,7 @@ function saveConfig(config) {
 }
 
 let config = loadConfig();
+const scheduledMessages = new Map();
 const client = new Client({
   authStrategy: new LocalAuth()
 });
@@ -98,8 +95,11 @@ client.on('ready', () => {
     console.log('Could not get state:', err.message);
   });
   
-  scheduleDailyMessage();
-  
+scheduleDailyMessage();
+
+  // Check for scheduled messages every minute
+  setInterval(checkScheduledMessages, 60 * 1000);
+
   // Start web interface
   app.listen(PORT, () => {
     console.log(`Configuration interface available at http://localhost:${PORT}`);
@@ -158,12 +158,33 @@ function formatDutyMessage(duties) {
 }
 
 /**
- * Format personal message for a teacher
+ * Format personal message for a teacher using config template
  */
-function formatPersonalMessage(teacher, dutyDate) {
-  const tn=(teacher.Teacher || teacher.name || 'Teacher')
-  const teacherName = tn; // Get whole name
-  return `👋 Hi ${teacherName},\n\nYou have been assigned morning duty tomorrow, that is on ${dutyDate}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at ${getISTTimeString()}\n\nIts a computer generated message, no need to reply.`;
+function formatPersonalMessage(teacher, dutyDate, customData = {}) {
+   let fullName = teacher.Teacher || teacher.name || 'Teacher';
+   const parts = fullName.split(' ');
+   let teacherName = parts[0];
+   const titles = ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
+   if (titles.includes(teacherName)) {
+     teacherName = parts[1] || parts[0];
+   }
+
+   let message = config.personalMessageFormat || `👋 Hi {{fullName}},\n\nYou have been assigned morning duty tomorrow, that is on {{dutyDate}}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at {{time}}\n\nIts a computer generated message, no need to reply.`;
+
+   // Replace all template variables
+   message = message
+     .replace(/\{\{fullName\}\}/g, fullName)
+     .replace(/\{\{teacherName\}\}/g, teacherName)
+     .replace(/\{\{dutyDate\}\}/g, dutyDate)
+     .replace(/\{\{time\}\}/g, getISTTimeString())
+     .replace(/\{\{duties\}\}/g, customData.duties || '');
+
+  // Allow any custom data to be injected
+  Object.entries(customData).forEach(([key, value]) => {
+    message = message.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+  });
+
+  return message;
 }
 
 /**
@@ -295,6 +316,44 @@ async function sendDutyMessage() {
 }
 
 /**
+ * Check and send any scheduled messages
+ */
+function checkScheduledMessages() {
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const currentHour = istTime.getHours();
+  const currentMinute = istTime.getMinutes();
+
+  scheduledMessages.forEach((data, id) => {
+    if (data.targetHour === currentHour && data.targetMinute === currentMinute) {
+      sendScheduledMessage(id, data);
+    }
+  });
+}
+
+async function sendScheduledMessage(id, data) {
+  try {
+    const { phone, message, name } = data;
+    let phoneFormatted = phone.replace(/\D/g, '');
+    if (phoneFormatted.length === 10) {
+      phoneFormatted = '91' + phoneFormatted;
+    }
+
+    const chatId = `${phoneFormatted}@c.us`;
+    const personalizedMsg = message
+      .replace(/\{\{name\}\}/g, name || '')
+      .replace(/\{\{time\}\}/g, getISTTimeString())
+      .replace(/\{\{date\}\}/g, new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }));
+
+    const result = await client.sendMessage(chatId, personalizedMsg);
+    console.log(`✓ Scheduled message sent to ${phoneFormatted} (ID: ${id})`);
+    scheduledMessages.delete(id);
+  } catch (error) {
+    console.error(`✗ Failed to send scheduled message ${id}:`, error.message);
+  }
+}
+
+/**
  * Schedule daily message send
  */
 function scheduleDailyMessage() {
@@ -302,8 +361,9 @@ function scheduleDailyMessage() {
   
   function checkAndSend() {
     const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const currentHour = istTime.getHours();
+    const currentMinute = istTime.getMinutes();
     
     if (currentHour === targetHour && currentMinute === targetMinute) {
       sendDutyMessage();
@@ -317,117 +377,16 @@ function scheduleDailyMessage() {
   checkAndSend();
 }
 
-// Express routes for configuration interface
 app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>WA Bot Configuration</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        form { max-width: 600px; }
-        label { display: block; margin-top: 10px; }
-        input, textarea { width: 100%; padding: 8px; margin-top: 5px; }
-        button { margin-top: 20px; padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .current { background: #f8f9fa; padding: 10px; margin-bottom: 20px; border-radius: 5px; }
-      </style>
-    </head>
-    <body>
-      <h1>WhatsApp Bot Configuration</h1>
-      <div class="current">
-        <h3>Current Settings:</h3>
-        <p><strong>Send Time:</strong> ${config.sendTime}</p>
-        <p><strong>Group Name:</strong> ${config.groupName}</p>
-        <p><strong>Message Format:</strong></p>
-        <pre>${config.messageFormat}</pre>
-      </div>
-      <form action="/config" method="POST">
-        <label for="sendTime">Send Time (HH:MM):</label>
-        <input type="time" id="sendTime" name="sendTime" value="${config.sendTime}" required>
-        
-        <label for="groupName">Group Name:</label>
-        <input type="text" id="groupName" name="groupName" value="${config.groupName}" required>
-        
-        <label for="groupId">Group ID (optional):</label>
-        <input type="text" id="groupId" name="groupId" value="${config.groupId || ''}" placeholder="120363428035369512@g.us">
-        <p><small>If the group name is duplicated, enter the exact group ID.</small></p>
-        
-        <label for="messageFormat">Message Format:</label>
-        <textarea id="messageFormat" name="messageFormat" rows="8" required>${config.messageFormat}</textarea>
-        <p><small>Use {{duties}} for the duty list and {{time}} for the current time.</small></p>
-        
-        <button type="submit">Save Configuration</button>
-      </form>
-      
-      <hr>
-      <h3>Test Features</h3>
-      <button onclick="sendTestToGroup()">Send Test Message to Group</button>
-      <button onclick="sendTestToPhone()">Send Test to Your Phone</button>
-      <div id="testResult" style="margin-top: 10px; color: green;"></div>
-      
-      <script>
-        async function sendTestToGroup() {
-          try {
-            const response = await fetch('/send-to-group', { method: 'POST' });
-            const data = await response.json();
-            document.getElementById('testResult').innerHTML = response.ok 
-              ? 'Test message sent to group! Check your WhatsApp.' 
-              : 'Error: ' + data.error;
-          } catch (error) {
-            document.getElementById('testResult').innerHTML = 'Error: ' + error.message;
-          }
-        }
-        
-        async function sendTestToPhone() {
-          const phone = prompt('Enter your phone number (e.g., 9839607855):');
-          if (!phone) return;
-          
-          try {
-            const response = await fetch('/send-test', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone })
-            });
-            const data = await response.json();
-            document.getElementById('testResult').innerHTML = response.ok 
-              ? 'Test message sent to your phone! Check your WhatsApp.' 
-              : 'Error: ' + data.error;
-          } catch (error) {
-            document.getElementById('testResult').innerHTML = 'Error: ' + error.message;
-          }
-        }
-      </script>
-    </body>
-    </html>
-  `);
+  res.redirect('/index.html');
+});
+
+app.get('/config', (req, res) => {
+  res.redirect('/index.html');
 });
 
 app.post('/config', (req, res) => {
-  const { sendTime, groupName, groupId, messageFormat } = req.body;
-  
-  // Validate time format (00:00 through 23:59)
-  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
-    return res.status(400).send('Invalid time format. Use HH:MM between 00:00 and 23:59');
-  }
-  
-  config.sendTime = sendTime;
-  config.groupName = groupName;
-  config.groupId = groupId?.trim() || '';
-  config.messageFormat = messageFormat;
-  
-  saveConfig(config);
-  
-  res.redirect('/');
-});
-
-app.get('/api/config', (req, res) => {
-  res.json(config);
-});
-
-app.post('/api/config', (req, res) => {
-  const { sendTime, groupName, groupId, messageFormat } = req.body;
+  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat } = req.body;
 
   if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
     return res.status(400).json({ error: 'Invalid time format. Use HH:MM between 00:00 and 23:59' });
@@ -437,10 +396,28 @@ app.post('/api/config', (req, res) => {
   config.groupName = groupName;
   config.groupId = groupId?.trim() || '';
   config.messageFormat = messageFormat;
+  if (personalMessageFormat !== undefined) {
+    config.personalMessageFormat = personalMessageFormat;
+  }
+
   saveConfig(config);
 
-  res.json({ success: true, config });
+  if (req.headers.accept?.includes('text/html')) {
+    res.redirect('/');
+  } else {
+    res.json({ success: true, config });
+  }
 });
+
+/**
+ * Bulk delete all scheduled messages
+ */
+app.delete('/api/scheduled-messages', (req, res) => {
+  scheduledMessages.clear();
+  res.json({ success: true, message: 'All scheduled messages cleared' });
+});
+
+// Initialize WhatsApp client
 
 app.post('/send-test', async (req, res) => {
   try {
@@ -507,4 +484,305 @@ app.post('/send-duty', async (req, res) => {
   }
 });
 
+/**
+ * Send personal messages to specific recipients with custom template
+ * POST /send-personal
+ * Body: {
+ *   recipients: [{ phone: "number", teacher: { Teacher: "Name" }, dutyDate: "date", customData: { ... } }],
+ *   messageFormat?: "custom template with {{variables}}"
+ * }
+ */
+app.post('/send-personal', async (req, res) => {
+  try {
+    const { recipients, messageFormat } = req.body;
+
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'recipients array is required' });
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+    const results = [];
+
+    for (const recipient of recipients) {
+      try {
+        const phone = (recipient.phone || '').trim();
+        const teacher = recipient.teacher || {};
+        const dutyDate = recipient.dutyDate || getTomorrowDateIST();
+        const customData = recipient.customData || {};
+
+        if (!phone) {
+          console.log(`⚠️  Skipping recipient - no phone number found`);
+          failureCount++;
+          results.push({ phone: '', success: false, error: 'No phone number' });
+          continue;
+        }
+
+        // Format phone number for WhatsApp
+        let phoneFormatted = phone.replace(/\D/g, '');
+        if (phoneFormatted.length === 10) {
+          phoneFormatted = '91' + phoneFormatted;
+        }
+
+        const chatId = `${phoneFormatted}@c.us`;
+
+        // Use provided messageFormat or fall back to config
+        const template = messageFormat || config.personalMessageFormat;
+        let personalMessage = template;
+
+         // Replace variables
+         const fullName = teacher.Teacher || teacher.name || 'Teacher';
+         const teacherName = (() => {
+           const parts = fullName.split(' ');
+           let name = parts[0];
+           const titles = ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
+           if (titles.includes(name)) {
+             name = parts[1] || parts[0];
+           }
+           return name;
+         })();
+         personalMessage = personalMessage
+           .replace(/\{\{fullName\}\}/g, fullName)
+           .replace(/\{\{teacherName\}\}/g, teacherName)
+           .replace(/\{\{dutyDate\}\}/g, dutyDate)
+           .replace(/\{\{time\}\}/g, getISTTimeString());
+
+        // Replace any custom data variables
+        Object.entries(customData).forEach(([key, value]) => {
+          personalMessage = personalMessage.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        });
+
+        console.log(`Sending personal message to ${teacherName} (${phoneFormatted})`);
+
+        const result = await client.sendMessage(chatId, personalMessage);
+        console.log(`✓ Personal message sent`);
+        successCount++;
+        results.push({ phone: phoneFormatted, success: true, messageId: result.id.id });
+
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (error) {
+        failureCount++;
+        const teacherName = recipient.teacher?.Teacher || recipient.teacher?.name || 'N/A';
+        console.error(`✗ Failed to send message to ${teacherName}: ${error.message}`);
+        results.push({ phone: recipient.phone, success: false, error: error.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      summary: { total: recipients.length, sent: successCount, failed: failureCount },
+      results
+    });
+  } catch (error) {
+    console.error('Error in /send-personal:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Send a custom message to multiple phone numbers
+ * POST /send-bulk
+ * Body: {
+ *   message: "your message or template with {{variables}}",
+ *   recipients: [{ phone: "number", variables: { var1: "value1", ... } }]
+ * }
+ */
+app.post('/send-bulk', async (req, res) => {
+  try {
+    const { message, recipients } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'message (string) is required' });
+    }
+
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'recipients array is required' });
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+    const results = [];
+
+    for (const recipient of recipients) {
+      try {
+        const phone = (recipient.phone || '').trim();
+        const variables = recipient.variables || {};
+
+        if (!phone) {
+          failureCount++;
+          results.push({ phone: '', success: false, error: 'No phone number' });
+          continue;
+        }
+
+        // Format phone number
+        let phoneFormatted = phone.replace(/\D/g, '');
+        if (phoneFormatted.length === 10) {
+          phoneFormatted = '91' + phoneFormatted;
+        }
+
+        const chatId = `${phoneFormatted}@c.us`;
+
+        // Replace template variables in message
+        let msg = message;
+        Object.entries(variables).forEach(([key, value]) => {
+          msg = msg.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        });
+
+        console.log(`Sending bulk message to ${phoneFormatted}`);
+
+        const result = await client.sendMessage(chatId, msg);
+        successCount++;
+        results.push({ phone: phoneFormatted, success: true, messageId: result.id.id });
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        failureCount++;
+        console.error(`✗ Failed to send bulk message: ${error.message}`);
+        results.push({ phone: recipient.phone, success: false, error: error.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      summary: { total: recipients.length, sent: successCount, failed: failureCount },
+      results
+    });
+  } catch (error) {
+    console.error('Error in /send-bulk:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get current config (including personalMessageFormat)
+ */
+/**
+ * Get contacts from duty CSV
+ */
+app.get('/api/contacts', async (req, res) => {
+  try {
+    const duties = await readDutyRoster();
+    const contacts = duties.map((duty, index) => ({
+      id: index,
+      name: duty.Teacher || duty.name || `Unknown ${index + 1}`,
+      phone: duty.Phone?.trim() || '',
+      dutyDate: duty.Duty || '',
+      srNo: duty['Sr.no'] || (index + 1)
+    }));
+    res.json({ contacts });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read contacts: ' + error.message });
+  }
+});
+
+app.get('/api/config', (req, res) => {
+  res.json(config);
+});
+
+/**
+ * Send a custom personalized message to a specific contact
+ * POST /api/send-contact
+ * Body: { phone, message, name }
+ */
+app.post('/api/send-contact', async (req, res) => {
+  try {
+    const { phone, message, name } = req.body;
+
+    if (!phone || !message) {
+      return res.status(400).json({ error: 'Phone number and message are required' });
+    }
+
+    let phoneFormatted = phone.replace(/\D/g, '');
+    if (phoneFormatted.length === 10) {
+      phoneFormatted = '91' + phoneFormatted;
+    }
+
+    const chatId = `${phoneFormatted}@c.us`;
+    const personalizedMsg = message
+      .replace(/\{\{name\}\}/g, name || '')
+      .replace(/\{\{time\}\}/g, getISTTimeString())
+      .replace(/\{\{date\}\}/g, new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }));
+
+    const result = await client.sendMessage(chatId, personalizedMsg);
+    res.json({ success: true, messageId: result.id.id, phone: phoneFormatted });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Schedule a personalized message
+ * POST /api/schedule-message
+ * Body: { phone, message, name, scheduleTime }
+ */
+app.post('/api/schedule-message', async (req, res) => {
+  try {
+    const { phone, message, name, scheduleTime } = req.body;
+
+    if (!phone || !message || !scheduleTime) {
+      return res.status(400).json({ error: 'Phone, message, and schedule time are required' });
+    }
+
+    const [targetHour, targetMinute] = scheduleTime.split(':').map(Number);
+    if (isNaN(targetHour) || isNaN(targetMinute) || targetHour < 0 || targetHour > 23 || targetMinute < 0 || targetMinute > 59) {
+      return res.status(400).json({ error: 'Invalid schedule time format. Use HH:MM' });
+    }
+
+    const id = `scheduled_${Date.now()}`;
+    scheduledMessages.set(id, { phone, message, name, targetHour, targetMinute, createdAt: new Date() });
+
+    res.json({ success: true, id, message: `Message scheduled for ${scheduleTime} IST` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get all scheduled messages
+ */
+app.get('/api/scheduled-messages', (req, res) => {
+  const list = [];
+  scheduledMessages.forEach((data, id) => {
+    list.push({ id, ...data });
+  });
+  res.json({ scheduledMessages: list });
+});
+
+/**
+ * Delete a scheduled message
+ */
+app.delete('/api/scheduled-messages/:id', (req, res) => {
+  const { id } = req.params;
+  if (scheduledMessages.delete(id)) {
+    res.json({ success: true, message: 'Scheduled message cancelled' });
+  } else {
+    res.status(404).json({ error: 'Scheduled message not found' });
+  }
+});
+
+/**
+ * Update configuration
+ */
+app.post('/api/config', (req, res) => {
+  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat } = req.body;
+
+  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
+    return res.status(400).json({ error: 'Invalid time format. Use HH:MM between 00:00 and 23:59' });
+  }
+
+  config.sendTime = sendTime;
+  config.groupName = groupName;
+  config.groupId = groupId?.trim() || '';
+  config.messageFormat = messageFormat;
+  if (personalMessageFormat !== undefined) {
+    config.personalMessageFormat = personalMessageFormat;
+  }
+
+  saveConfig(config);
+
+  res.json({ success: true, config });
+});
+
+// Initialize WhatsApp client
 client.initialize();
