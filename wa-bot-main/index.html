@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WA Bot Control Panel</title>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; margin: 0; padding: 0; background: #f3f4f6; color: #111827; }
+    .page { max-width: 980px; margin: 0 auto; padding: 24px; }
+    .card { background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); padding: 28px; margin-top: 20px; }
+    h1, h2 { margin: 0; }
+    p { line-height: 1.7; }
+    label { display: block; margin-top: 18px; font-weight: 600; }
+    input, textarea, button { width: 100%; border: 1px solid #d1d5db; border-radius: 12px; padding: 12px 14px; margin-top: 8px; font-size: 1rem; }
+    textarea { resize: vertical; min-height: 140px; }
+    button { background: #2563eb; color: #fff; border: none; cursor: pointer; transition: background 0.2s ease; }
+    button:hover { background: #1d4ed8; }
+    .button-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 18px; }
+    .status { margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #f8fafc; border: 1px solid #e5e7eb; }
+    .status strong { display: block; margin-bottom: 4px; }
+    .notice { color: #1d4ed8; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card">
+      <h1>WA Bot Control Panel</h1>
+      <p>This page is the GitHub Pages landing page for your WhatsApp duty roster bot. It can connect to a local bot server running on <code>http://localhost:3000</code>.</p>
+      <div class="status" id="statusBox">
+        <strong>Bot status:</strong>
+        <span id="statusText">Checking local bot status...</span>
+      </div>
+      <p class="notice">If the local bot is not running, start it with <code>npm start</code> in this repository.</p>
+    </div>
+
+    <div class="card">
+      <h2>Quick actions</h2>
+      <div class="button-row">
+        <button type="button" onclick="openLocalInterface()">Open Local Interface</button>
+        <button type="button" onclick="sendTestGroup()">Send Test to Group</button>
+        <button type="button" onclick="sendTestPhone()">Send Test to Phone</button>
+        <button type="button" onclick="sendDutyMessage()">Send Duty Message Now</button>
+      </div>
+      <div class="status" id="actionResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>Configure bot</h2>
+      <p>Use this form to update bot settings on your local server.</p>
+      <label for="sendTime">Send Time</label>
+      <input type="time" id="sendTime" />
+
+      <label for="groupName">Group Name</label>
+      <input type="text" id="groupName" placeholder="VSEC AVADH OFFICIAL" />
+
+      <label for="groupId">Group ID (Optional)</label>
+      <input type="text" id="groupId" placeholder="120363428035369512@g.us" />
+
+      <label for="messageFormat">Message Format</label>
+      <textarea id="messageFormat">📋 *Tomorrow's Morning Duty* 📋
+
+{{duties}}
+
+---
+⏰ Sent at {{time}}</textarea>
+
+      <button type="button" onclick="saveConfig()">Save Configuration</button>
+      <div class="status" id="saveResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>How to use</h2>
+      <ol>
+        <li>Clone the repository locally and install dependencies: <code>npm install</code>.</li>
+        <li>Start the bot: <code>npm start</code>.</li>
+        <li>Open the local interface at <code>http://localhost:3000</code> or use the buttons above.</li>
+        <li>Scan the WhatsApp QR code when prompted to authenticate the bot.</li>
+      </ol>
+      <p>The GitHub Pages page is a static control panel, but the actual bot runs on your local machine.</p>
+    </div>
+  </div>
+
+  <script>
+    const apiHost = 'http://localhost:3000';
+
+    async function checkBackend() {
+      try {
+        const response = await fetch(`${apiHost}/api/config`, { mode: 'cors' });
+        if (!response.ok) throw new Error('Server returned ' + response.status);
+        const config = await response.json();
+        document.getElementById('statusText').textContent = 'Local bot is online and ready.';
+        document.getElementById('sendTime').value = config.sendTime || '18:00';
+        document.getElementById('groupName').value = config.groupName || '';
+        document.getElementById('groupId').value = config.groupId || '';
+        document.getElementById('messageFormat').value = config.messageFormat || '';
+        return true;
+      } catch (error) {
+        document.getElementById('statusText').textContent = 'Local bot is not reachable. Start it with npm start.';
+        return false;
+      }
+    }
+
+    function openLocalInterface() {
+      window.open('http://localhost:3000', '_blank');
+    }
+
+    async function showResult(elementId, message, success = true) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.style.color = success ? '#0f766e' : '#b91c1c';
+    }
+
+    async function sendTestGroup() {
+      try {
+        const response = await fetch(`${apiHost}/send-to-group`, { method: 'POST', mode: 'cors' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send');
+        showResult('actionResult', 'Test message sent to group successfully.');
+      } catch (error) {
+        showResult('actionResult', error.message, false);
+      }
+    }
+
+    async function sendTestPhone() {
+      const phone = prompt('Enter your phone number (e.g., 9839607855):');
+      if (!phone) return;
+      try {
+        const response = await fetch(`${apiHost}/send-test`, {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send');
+        showResult('actionResult', 'Test message sent to phone successfully.');
+      } catch (error) {
+        showResult('actionResult', error.message, false);
+      }
+    }
+
+    async function sendDutyMessage() {
+      try {
+        const response = await fetch(`${apiHost}/send-duty`, { method: 'POST', mode: 'cors' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send duty');
+        showResult('actionResult', 'Duty message sent successfully.');
+      } catch (error) {
+        showResult('actionResult', error.message, false);
+      }
+    }
+
+    async function saveConfig() {
+      try {
+        const payload = {
+          sendTime: document.getElementById('sendTime').value,
+          groupName: document.getElementById('groupName').value,
+          groupId: document.getElementById('groupId').value,
+          messageFormat: document.getElementById('messageFormat').value
+        };
+        const response = await fetch(`${apiHost}/api/config`, {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save config');
+        showResult('saveResult', 'Configuration saved successfully.');
+      } catch (error) {
+        showResult('saveResult', error.message, false);
+      }
+    }
+
+    checkBackend();
+  </script>
+</body>
+</html>

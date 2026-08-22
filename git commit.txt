@@ -1,0 +1,4 @@
+git init
+git add .
+git commit -m /workspaces/wa-bot
+git push --force origin main

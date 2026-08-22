@@ -1,0 +1,11 @@
+{
+  "sendTime": "13:00",
+  "groupName": "VSEC AVADH OFFICIAL",
+  "groupId": "919839607855-1430278592@g.us",
+  "messageFormat": "📋 *Tomorrow's Morning Duty * 📋\r\n\r\n{{duties}}\r\n\r\n---\r\n⏰ Above teachers must reach the school at 6:45 a.m. ⏰ \r\n\r\nsent at {{time}}\r\n\r\nIts a computer generated message, no need to reply.",
+  "personalMessageFormat": "👋 Hi {{fullName}},\r\n\r\nYou have been assigned morning duty tomorrow, that is on {{dutyDate}}.\r\n\r\nPlease ensure you are available at 6:45 AM.\r\n\r\n📋 School morning duty notification\r\n⏰ Sent at {{time}}\r\n\r\nIts a computer generated message, no need to reply."
+  ,
+  "birthdaySendTime": "06:00",
+  "birthdayMessageFormat": "🎉 *Today's Birthday(s)* 🎉\n\n{{teachers}}\n\nSent at: {{time}}",
+  "birthdayPersonalMessageFormat": "🎂 Dear {{fullName}},\n\nHappy Birthday! Wishing you a wonderful year ahead.\n\n— Sent at {{time}}"
+}

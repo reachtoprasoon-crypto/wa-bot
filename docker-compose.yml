@@ -1,0 +1,21 @@
+services:
+  wa-bot:
+    build: .
+    container_name: duty-whatsapp-bot
+    ports:
+      - "3000:3000"
+    volumes:
+      - bot-session:/app/.wwebjs_auth
+    environment:
+      SEND_TIME: ${SEND_TIME:-18:00}
+      GROUP_NAME: ${GROUP_NAME:-VSEC AVADH OFFICIAL}
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-duty_roster}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+    stdin_open: true
+    tty: true
+
+volumes:
+  bot-session:
