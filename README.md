@@ -26,7 +26,7 @@ docker-compose run wa-bot npm run send-now
 ```bash
 sudo apt update && sudo apt install -y \
   libatk-1.0-0 libatk-bridge2.0-0 libgbm-dev libgbm1 libgtk-3-0 \
-  libnss3 libxss1 libxdamage1 libxrandr2 libxkbcommon0 \
+  libnspr4 libnss3 libxss1 libxdamage1 libxrandr2 libxkbcommon0 \
   libpango-1.0-0 libpangocairo-1.0-0 fonts-dejavu-core
 ```
 
@@ -46,7 +46,7 @@ DB_USER=root
 DB_PASSWORD=your-database-password
 ```
 
-Import the supplied SQL dump into that database before starting the bot. Duties are loaded by joining the `duties` and `teachers` tables.
+Import the supplied SQL dump into that database before starting the bot. Duties and teacher birthdays are loaded from the `duties` and `teachers` tables; `teachers.dob` must contain each teacher's date of birth.
 
 4. Start the bot and scan the QR from the account that is a member of the WhatsApp group:
 
@@ -59,6 +59,7 @@ When the `qr` event logs a QR string, scan it with WhatsApp (the phone/account u
 ## Scheduling
 - By default the bot sends at `18:00` local time. Change this by setting environment variable `SEND_TIME` (format `HH:MM`) or in `.env` file.
 - The target group name is set by `GROUP_NAME` env var (default `VSEC AVADH OFFICIAL`).
+- Birthday messages are enabled by default and are sent at `06:00` IST to each birthday teacher and the configured group. Change the time, enablement, and message templates from the control panel.
 
 ## Configuration Interface
 
@@ -74,6 +75,8 @@ The bot includes a web-based configuration interface to easily set the message f
 The message format supports placeholders:
 - `{{duties}}` - Replaced with the formatted duty list
 - `{{time}}` - Replaced with the current time when sending
+
+Birthday templates also support `{{fullName}}`, `{{teacherName}}`, and `{{time}}`. The control panel lists birthdays from the current and following month directly from the database.
 
 Example format:
 ```

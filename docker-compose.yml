@@ -2,8 +2,6 @@ services:
   wa-bot:
     build: .
     container_name: duty-whatsapp-bot
-    ports:
-      - "3000:3000"
     volumes:
       - bot-session:/app/.wwebjs_auth
     environment:

@@ -18,7 +18,8 @@ async function readDutyRoster() {
       duties.id AS id,
       teachers.name AS Teacher,
       DATE_FORMAT(duties.duty_date, '%d-%m-%Y') AS Duty,
-      teachers.phone AS Phone
+      teachers.phone AS Phone,
+      DATE_FORMAT(teachers.dob, '%Y-%m-%d') AS DOB
     FROM duties
     INNER JOIN teachers ON teachers.id = duties.teacher_id
     ORDER BY duties.duty_date, duties.id
@@ -27,19 +28,22 @@ async function readDutyRoster() {
   return rows;
 }
 
-async function readTeachers() {
+async function readTeacherBirthdays(months) {
+  const monthList = Array.isArray(months) && months.length ? months : [1, 2];
+  const placeholders = monthList.map(() => '?').join(', ');
   const [rows] = await pool.query(`
     SELECT
-      id,
-      name,
-      phone,
-      DATE_FORMAT(dob, '%Y-%m-%d') AS dob,
-      DATE_FORMAT(dob, '%d-%m-%Y') AS dobDisplay
+      teachers.id AS id,
+      teachers.name AS Teacher,
+      teachers.phone AS Phone,
+      DATE_FORMAT(teachers.dob, '%Y-%m-%d') AS DOB
     FROM teachers
-    ORDER BY name
-  `);
+    WHERE teachers.dob IS NOT NULL
+      AND MONTH(teachers.dob) IN (${placeholders})
+    ORDER BY MONTH(teachers.dob), DAY(teachers.dob), teachers.name
+  `, monthList);
 
   return rows;
 }
 
-module.exports = { readDutyRoster, readTeachers };
+module.exports = { readDutyRoster, readTeacherBirthdays };

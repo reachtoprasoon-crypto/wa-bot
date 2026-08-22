@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "test": "node tests/birthdayUtils.test.js",
     "send-now": "node send-now.js",
     "send-personal": "node send-personal.js"
   },
@@ -25,5 +26,8 @@
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "allowScripts": {
+    "puppeteer@24.38.0": true
   }
 }

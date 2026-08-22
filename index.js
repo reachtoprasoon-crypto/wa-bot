@@ -5,23 +5,8 @@ const path = require('path');
 const express = require('express');
 require('dotenv').config();
 
-const { readDutyRoster, readTeachers } = require('./database');
-const { getBirthdayTeachersForDate, formatBirthdayGroupMessage, formatBirthdayPersonalMessage } = require('./birthdayUtils');
-const CONFIG_FILE = 'config.json';
-const AUTH_DIR = path.join(__dirname, '.wwebjs_auth');
-
-function cleanupStaleSession() {
-  const sessionDir = path.join(AUTH_DIR, 'session');
-
-  try {
-    if (fs.existsSync(sessionDir)) {
-      fs.rmSync(sessionDir, { recursive: true, force: true });
-      console.log(`[${getISTTime()}] Removed stale WhatsApp auth session at ${sessionDir}`);
-    }
-  } catch (error) {
-    console.warn(`[${getISTTime()}] Could not remove stale auth session: ${error.message}`);
-  }
-}
+const { readDutyRoster, readTeacherBirthdays } = require('./database');
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 /**
  * Get current time in IST (Indian Standard Time)
@@ -57,11 +42,11 @@ function loadConfig() {
     console.log('Config file not found, using defaults');
     return {
       sendTime: process.env.SEND_TIME || '18:00',
-      groupName: process.env.GROUP_NAME || 'VSEC AVADH OFFICIAL',      groupId: process.env.GROUP_ID || '',      messageFormat: "📋 *Tomorrow's Morning Duty* 📋\n\n{{duties}}\n\n---\n⏰ Sent at {{time}}"
-      ,
-      birthdaySendTime: process.env.BIRTHDAY_SEND_TIME || '06:00',
-      birthdayMessageFormat: process.env.BIRTHDAY_MESSAGE_FORMAT || '🎉 Today\'s Birthday(s):\n\n{{teachers}}\n\n{{time}}',
-      birthdayPersonalMessageFormat: process.env.BIRTHDAY_PERSONAL_MESSAGE_FORMAT || '🎂 Happy Birthday {{teacherName}}!\n\nWishing you a wonderful year ahead.\n\n{{time}}'
+      groupName: process.env.GROUP_NAME || 'VSEC AVADH OFFICIAL',      groupId: process.env.GROUP_ID || '',      messageFormat: "📋 *Tomorrow's Morning Duty* 📋\n\n{{duties}}\n\n---\n⏰ Sent at {{time}}",
+      birthdayEnabled: true,
+      birthdayTime: process.env.BIRTHDAY_TIME || '06:00',
+      birthdayMessageFormat: "🎂 Happy Birthday, {{fullName}}! 🎉\n\nWishing you a wonderful day filled with happiness and success.\n\nBest wishes from everyone at school!",
+      birthdayGroupMessageFormat: "🎂 *Happy Birthday, {{fullName}}!* 🎉\n\nPlease join us in wishing {{fullName}} a very happy birthday. May your day be filled with happiness and success!"
     };
   }
 }
@@ -72,11 +57,15 @@ function saveConfig(config) {
 }
 
 let config = loadConfig();
+config.birthdayEnabled = config.birthdayEnabled !== false;
+config.birthdayTime = config.birthdayTime || '06:00';
+config.birthdayMessageFormat = config.birthdayMessageFormat || '🎂 Happy Birthday, {{fullName}}! 🎉\n\nWishing you a wonderful day filled with happiness and success.\n\nBest wishes from everyone at school!';
+config.birthdayGroupMessageFormat = config.birthdayGroupMessageFormat || '🎂 *Happy Birthday, {{fullName}}!* 🎉\n\nPlease join us in wishing {{fullName}} a very happy birthday. May your day be filled with happiness and success!';
 let scheduleTimeout = null;
-let scheduleBirthdayTimeout = null;
+let birthdayScheduleTimeout = null;
 let isClientReady = false;
 let client = new Client({
-  authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
+  authStrategy: new LocalAuth(),
   userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
   puppeteer: {
     headless: 'new',
@@ -99,9 +88,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 function startHttpServer() {
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, () => {
     console.log(`Configuration interface available at http://localhost:${PORT}`);
-    console.log(`Configuration interface available externally at http://0.0.0.0:${PORT}`);
   });
 }
 
@@ -139,17 +127,11 @@ async function initializeClient(retryCount = 0, maxRetries = 3) {
     
     if (retryCount < maxRetries) {
       const delayMs = (retryCount + 1) * 5000; // 5s, 10s, 15s delays
-      const msg = error && error.message ? error.message : String(error);
-
-      if (msg.includes('alreadyrunning') || msg.includes('ERR_CERT_VERIFIER_CHANGED')) {
-        cleanupStaleSession();
-      }
-
       console.log(`[${getISTTime()}] Retrying in ${delayMs/1000}s...`);
       
       // Create a fresh client instance for retry
       client = new Client({
-        authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
+        authStrategy: new LocalAuth(),
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
         puppeteer: {
           headless: 'new',
@@ -279,6 +261,23 @@ function formatPersonalMessage(teacher, dutyDate, customData = {}) {
   });
 
   return message;
+}
+
+function formatBirthdayMessage(teacher, template) {
+  const fullName = teacher.Teacher || teacher.name || 'Teacher';
+  const teacherName = fullName.split(' ')[0];
+  return (template || '')
+    .replace(/\{\{fullName\}\}/gi, fullName)
+    .replace(/\{\{teacherName\}\}/gi, teacherName)
+    .replace(/\{\{time\}\}/gi, getISTTimeString());
+}
+
+function getChatIdForPhone(phone) {
+  let phoneFormatted = (phone || '').replace(/\D/g, '');
+  if (phoneFormatted.length === 10) {
+    phoneFormatted = `91${phoneFormatted}`;
+  }
+  return `${phoneFormatted}@c.us`;
 }
 
 /**
@@ -425,6 +424,56 @@ async function sendDutyMessage() {
   }
 }
 
+async function sendBirthdayMessages() {
+  const today = getISTNow();
+  const month = today.getMonth() + 1;
+  const monthDay = `${String(month).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const teachers = await readTeacherBirthdays([month]);
+  const birthdays = teachers.filter(teacher => (teacher.DOB || '').slice(5) === monthDay);
+
+  console.log(`[${getISTTime()}] Found ${birthdays.length} birthdays for ${monthDay}`);
+  if (birthdays.length === 0) return { sent: 0, failed: 0 };
+
+  let targetChat;
+  const targetChatId = (config.groupId || '').trim();
+  if (targetChatId) {
+    try {
+      targetChat = await client.getChatById(targetChatId);
+    } catch (error) {
+      console.error(`Could not find birthday group by ID ${targetChatId}:`, error.message);
+    }
+  }
+  if (!targetChat) {
+    const chats = await client.getChats();
+    targetChat = chats.find(chat => chat.name === config.groupName);
+  }
+  if (!targetChat) throw new Error(`Group ${config.groupName} not found`);
+
+  let sent = 0;
+  let failed = 0;
+  for (const teacher of birthdays) {
+    const fullName = teacher.Teacher || teacher.name || 'Teacher';
+    try {
+      await client.sendMessage(
+        targetChat.id._serialized,
+        formatBirthdayMessage(teacher, config.birthdayGroupMessageFormat)
+      );
+      if (!teacher.Phone) throw new Error('No phone number found');
+      await client.sendMessage(
+        getChatIdForPhone(teacher.Phone),
+        formatBirthdayMessage(teacher, config.birthdayMessageFormat)
+      );
+      sent++;
+      console.log(`Birthday messages sent for ${fullName}`);
+    } catch (error) {
+      failed++;
+      console.error(`Failed birthday messages for ${fullName}:`, error.message);
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  return { sent, failed };
+}
+
 /**
  * Get current IST time as a Date object
  */
@@ -438,10 +487,16 @@ function getISTNow() {
  */
 function getNextSendDate(sendTime) {
   const [targetHour, targetMinute] = sendTime.split(':').map(Number);
-  const next = getISTNow();
-  next.setHours(targetHour, targetMinute, 0, 0);
-  if (next <= getISTNow()) {
-    next.setDate(next.getDate() + 1);
+  const now = new Date();
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+  // Get current IST date components via UTC arithmetic
+  const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
+  const istMidnightUTC = new Date(
+    Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), nowIST.getUTCDate()) - IST_OFFSET_MS
+  );
+  let next = new Date(istMidnightUTC.getTime() + (targetHour * 60 + targetMinute) * 60 * 1000);
+  if (next <= now) {
+    next = new Date(next.getTime() + 24 * 60 * 60 * 1000);
   }
   return next;
 }
@@ -453,11 +508,18 @@ function clearDailySchedule() {
   }
 }
 
+function clearBirthdaySchedule() {
+  if (birthdayScheduleTimeout) {
+    clearTimeout(birthdayScheduleTimeout);
+    birthdayScheduleTimeout = null;
+  }
+}
+
 function scheduleDailyMessage() {
   clearDailySchedule();
 
   const nextSend = getNextSendDate(config.sendTime);
-  const delayMs = nextSend.getTime() - getISTNow().getTime();
+  const delayMs = nextSend.getTime() - Date.now();
 
   console.log(`[${getISTTime()}] Next scheduled send at ${nextSend.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} for ${config.sendTime} (in ${Math.round(delayMs / 1000)}s)`);
 
@@ -471,23 +533,17 @@ function scheduleDailyMessage() {
   }, delayMs);
 }
 
-function clearBirthdaySchedule() {
-  if (scheduleBirthdayTimeout) {
-    clearTimeout(scheduleBirthdayTimeout);
-    scheduleBirthdayTimeout = null;
-  }
-}
-
 function scheduleBirthdayMessage() {
   clearBirthdaySchedule();
+  if (config.birthdayEnabled === false) {
+    console.log('Birthday messages are disabled.');
+    return;
+  }
 
-  const sendTime = config.birthdaySendTime || '06:00';
-  const nextSend = getNextSendDate(sendTime);
-  const delayMs = nextSend.getTime() - getISTNow().getTime();
-
-  console.log(`[${getISTTime()}] Next birthday check scheduled at ${nextSend.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} for ${sendTime} (in ${Math.round(delayMs / 1000)}s)`);
-
-  scheduleBirthdayTimeout = setTimeout(async () => {
+  const nextSend = getNextSendDate(config.birthdayTime || '06:00');
+  const delayMs = nextSend.getTime() - Date.now();
+  console.log(`[${getISTTime()}] Next birthday check at ${nextSend.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+  birthdayScheduleTimeout = setTimeout(async () => {
     try {
       await sendBirthdayMessages();
     } catch (error) {
@@ -495,88 +551,6 @@ function scheduleBirthdayMessage() {
     }
     scheduleBirthdayMessage();
   }, delayMs);
-}
-
-function rescheduleBirthdayMessage() {
-  if (!isClientReady) {
-    console.log(`[${getISTTime()}] Birthday config updated; schedule will start when the client becomes ready.`);
-    return;
-  }
-
-  console.log(`[${getISTTime()}] Rescheduling birthday send to ${config.birthdaySendTime}`);
-  scheduleBirthdayMessage();
-}
-
-async function sendBirthdayMessages() {
-  try {
-    console.log(`[${getISTTime()}] Checking for today's birthdays...`);
-    const teachers = await readTeachers();
-    const today = getISTNow();
-    const todays = getBirthdayTeachersForDate(teachers, today);
-
-    if (!todays || todays.length === 0) {
-      console.log('No birthdays today.');
-      return;
-    }
-
-    // Prepare group message
-    const groupMsg = formatBirthdayGroupMessage(todays, { birthdayMessageFormat: config.birthdayMessageFormat, timeText: getISTTimeString() });
-
-    // Send to group (reuse logic to find group as in sendDutyMessage)
-    let targetChat;
-    let targetChatId = (config.groupId || '').trim();
-
-    if (targetChatId) {
-      try {
-        await client.sendMessage(targetChatId, groupMsg);
-        console.log('✓ Birthday group message sent via configured groupId');
-      } catch (err) {
-        console.error('Direct send to configured groupId failed for birthdays:', err.message);
-      }
-    }
-
-    if (!targetChat) {
-      try {
-        const chats = await client.getChats();
-        targetChat = chats.find(chat => chat.name === config.groupName);
-      } catch (err) {
-        console.error('Could not load chats for birthday group send:', err.message);
-      }
-    }
-
-    if (targetChat) {
-      try {
-        await client.sendMessage(targetChat.id._serialized, groupMsg);
-        console.log('✓ Birthday group message sent to group');
-      } catch (err) {
-        console.error('Failed to send birthday group message to group:', err.message);
-      }
-    }
-
-    // Send personal birthday messages
-    for (const t of todays) {
-      try {
-        let phone = (t.phone || '').trim();
-        if (!phone) {
-          console.log(`⚠️ Skipping ${t.name} - no phone`);
-          continue;
-        }
-
-        let phoneFormatted = phone.replace(/\D/g, '');
-        if (phoneFormatted.length === 10) phoneFormatted = '91' + phoneFormatted;
-        const chatId = `${phoneFormatted}@c.us`;
-
-        const personalMsg = formatBirthdayPersonalMessage(t, { birthdayPersonalMessageFormat: config.birthdayPersonalMessageFormat, timeText: getISTTimeString() });
-        await client.sendMessage(chatId, personalMsg);
-        console.log(`✓ Sent birthday personal message to ${t.name} (${phoneFormatted})`);
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (err) {
-        console.error(`✗ Failed to send personal birthday to ${t.name}:`, err.message);
-      }
-    }
-  } catch (error) {
-    console.error('Error in sendBirthdayMessages:', error.message || error);
-  }
 }
 
 function rescheduleDailyMessage() {
@@ -587,10 +561,13 @@ function rescheduleDailyMessage() {
 
   console.log(`[${getISTTime()}] Rescheduling daily send to ${config.sendTime}`);
   scheduleDailyMessage();
+  scheduleBirthdayMessage();
 }
 
 // Express routes for configuration interface
 app.get('/', (req, res) => {
+  return res.sendFile(path.join(__dirname, 'index.html'));
+
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -617,11 +594,6 @@ app.get('/', (req, res) => {
         <h3>Current Settings:</h3>
         <p><strong>Send Time:</strong> ${config.sendTime}</p>
         <p><strong>Group Name:</strong> ${config.groupName}</p>
-        <p><strong>Birthday Send Time:</strong> ${config.birthdaySendTime || '06:00'}</p>
-        <p><strong>Birthday Message Format:</strong></p>
-        <pre>${config.birthdayMessageFormat || ''}</pre>
-        <p><strong>Birthday Personal Format:</strong></p>
-        <pre>${config.birthdayPersonalMessageFormat || ''}</pre>
         <p><strong>Message Format:</strong></p>
         <pre>${config.messageFormat}</pre>
       </div>
@@ -643,17 +615,6 @@ app.get('/', (req, res) => {
         <label for="personalMessageFormat">Personal Message Format:</label>
         <textarea id="personalMessageFormat" name="personalMessageFormat" rows="8">${config.personalMessageFormat || ''}</textarea>
         <p><small>Use {{teacherName}}, {{dutyDate}}, {{time}}, and any custom {{variables}}.</small></p>
-        
-        <label for="birthdaySendTime">Birthday Send Time (HH:MM):</label>
-        <input type="time" id="birthdaySendTime" name="birthdaySendTime" value="${config.birthdaySendTime || '06:00'}" required>
-
-        <label for="birthdayMessageFormat">Birthday Group Message Format:</label>
-        <textarea id="birthdayMessageFormat" name="birthdayMessageFormat" rows="6">${config.birthdayMessageFormat || ''}</textarea>
-        <p><small>Use {{teachers}} and {{time}} in the birthday group template.</small></p>
-
-        <label for="birthdayPersonalMessageFormat">Birthday Personal Message Format:</label>
-        <textarea id="birthdayPersonalMessageFormat" name="birthdayPersonalMessageFormat" rows="6">${config.birthdayPersonalMessageFormat || ''}</textarea>
-        <p><small>Use {{teacherName}} and {{time}} in the personal birthday template.</small></p>
         
         <button type="submit">Save Configuration</button>
       </form>
@@ -828,7 +789,7 @@ app.get('/', (req, res) => {
 });
 
 app.post('/config', (req, res) => {
-  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat, birthdaySendTime, birthdayMessageFormat, birthdayPersonalMessageFormat } = req.body;
+  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat } = req.body;
 
   // Validate time format (00:00 through 23:59)
   if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
@@ -842,13 +803,9 @@ app.post('/config', (req, res) => {
   if (personalMessageFormat !== undefined) {
     config.personalMessageFormat = personalMessageFormat;
   }
-  if (birthdaySendTime) config.birthdaySendTime = birthdaySendTime;
-  if (birthdayMessageFormat !== undefined) config.birthdayMessageFormat = birthdayMessageFormat;
-  if (birthdayPersonalMessageFormat !== undefined) config.birthdayPersonalMessageFormat = birthdayPersonalMessageFormat;
 
   saveConfig(config);
   rescheduleDailyMessage();
-  rescheduleBirthdayMessage();
 
   res.redirect('/');
 });
@@ -927,6 +884,16 @@ app.post('/send-duty', async (req, res) => {
     res.json({ success: true, message: 'Duty message sent successfully' });
   } catch (error) {
     console.error('Error sending duty message:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/send-birthday', async (req, res) => {
+  try {
+    const summary = await sendBirthdayMessages();
+    res.json({ success: true, message: 'Birthday messages processed', summary });
+  } catch (error) {
+    console.error('Error sending birthday messages:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1101,6 +1068,23 @@ app.post('/send-bulk', async (req, res) => {
   }
 });
 
+app.get('/api/status', (req, res) => {
+  res.json({
+    ready: isClientReady,
+    uptime: process.uptime(),
+    config: {
+      sendTime: config.sendTime,
+      groupName: config.groupName,
+      groupId: config.groupId,
+      birthdayEnabled: config.birthdayEnabled,
+      birthdayTime: config.birthdayTime,
+    },
+    nextSend: isClientReady ? getNextSendDate(config.sendTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null,
+    nextBirthday: (isClientReady && config.birthdayEnabled) ? getNextSendDate(config.birthdayTime || '06:00').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null,
+    istTime: getISTTime(),
+  });
+});
+
 /**
  * Get current config (including personalMessageFormat)
  */
@@ -1120,14 +1104,30 @@ app.get('/api/duties', async (req, res) => {
   }
 });
 
+app.get('/api/birthdays', async (req, res) => {
+  try {
+    const now = getISTNow();
+    const currentMonth = now.getMonth() + 1;
+    const nextMonth = (currentMonth % 12) + 1;
+    const birthdays = await readTeacherBirthdays([currentMonth, nextMonth]);
+    res.json({ currentMonth, nextMonth, birthdays });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * Update configuration
  */
 app.post('/api/config', (req, res) => {
-  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat, birthdaySendTime, birthdayMessageFormat, birthdayPersonalMessageFormat } = req.body;
+  const { sendTime, groupName, groupId, messageFormat, personalMessageFormat,
+    birthdayEnabled, birthdayTime, birthdayMessageFormat, birthdayGroupMessageFormat } = req.body;
 
   if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
     return res.status(400).json({ error: 'Invalid time format. Use HH:MM between 00:00 and 23:59' });
+  }
+  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(birthdayTime)) {
+    return res.status(400).json({ error: 'Invalid birthday time format. Use HH:MM between 00:00 and 23:59' });
   }
 
   config.sendTime = sendTime;
@@ -1137,13 +1137,13 @@ app.post('/api/config', (req, res) => {
   if (personalMessageFormat !== undefined) {
     config.personalMessageFormat = personalMessageFormat;
   }
-  if (birthdaySendTime) config.birthdaySendTime = birthdaySendTime;
-  if (birthdayMessageFormat !== undefined) config.birthdayMessageFormat = birthdayMessageFormat;
-  if (birthdayPersonalMessageFormat !== undefined) config.birthdayPersonalMessageFormat = birthdayPersonalMessageFormat;
+  config.birthdayEnabled = birthdayEnabled !== false;
+  config.birthdayTime = birthdayTime;
+  config.birthdayMessageFormat = birthdayMessageFormat || config.birthdayMessageFormat;
+  config.birthdayGroupMessageFormat = birthdayGroupMessageFormat || config.birthdayGroupMessageFormat;
 
   saveConfig(config);
   rescheduleDailyMessage();
-  rescheduleBirthdayMessage();
 
   res.json({ success: true, config });
 });
@@ -1194,24 +1194,3 @@ app.post('/send-personal-message', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// Initialize WhatsApp client with error handling and retry logic
-async function initializeClient(retryCount = 0, maxRetries = 3) {
-  try {
-    console.log(`[${getISTTime()}] Initializing WhatsApp client (attempt ${retryCount + 1}/${maxRetries + 1})...`);
-    await client.initialize();
-    console.log(`[${getISTTime()}] Client initialization successful!`);
-  } catch (error) {
-    console.error(`[${getISTTime()}] Client initialization failed:`, error.message);
-    
-    if (retryCount < maxRetries) {
-      const delayMs = (retryCount + 1) * 5000; // 5s, 10s, 15s delays
-      console.log(`[${getISTTime()}] Retrying in ${delayMs/1000}s...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      return initializeClient(retryCount + 1, maxRetries);
-    } else {
-      console.error(`[${getISTTime()}] Failed to initialize after ${maxRetries + 1} attempts. Exiting.`);
-      process.exit(1);
-    }
-  }
-}

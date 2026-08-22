@@ -19,6 +19,11 @@
     .status { margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #f8fafc; border: 1px solid #e5e7eb; }
     .status strong { display: block; margin-bottom: 4px; }
     .notice { color: #1d4ed8; margin-top: 12px; }
+    .birthday-list { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .birthday-list th, .birthday-list td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+    .birthday-list th { background: #f8fafc; }
+    .inline-control { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+    .inline-control input { width: auto; margin: 0; }
   </style>
 </head>
 <body>
@@ -40,6 +45,7 @@
         <button type="button" onclick="sendTestGroup()">Send Test to Group</button>
         <button type="button" onclick="sendTestPhone()">Send Test to Phone</button>
         <button type="button" onclick="sendDutyMessage()">Send Duty Message Now</button>
+        <button type="button" onclick="sendBirthdayMessages()">Send Birthday Messages Now</button>
       </div>
       <div class="status" id="actionResult"></div>
     </div>
@@ -64,8 +70,31 @@
 ---
 ⏰ Sent at {{time}}</textarea>
 
+  <label class="inline-control" for="birthdayEnabled"><input type="checkbox" id="birthdayEnabled" /> Enable birthday messages</label>
+  <label for="birthdayTime">Birthday Send Time</label>
+  <input type="time" id="birthdayTime" value="06:00" />
+
+  <label for="birthdayMessageFormat">Birthday Message to Teacher</label>
+  <textarea id="birthdayMessageFormat">🎂 Happy Birthday, {{fullName}}! 🎉
+
+Wishing you a wonderful day filled with happiness and success.</textarea>
+
+  <label for="birthdayGroupMessageFormat">Birthday Message to Group</label>
+  <textarea id="birthdayGroupMessageFormat">🎂 *Happy Birthday, {{fullName}}!* 🎉
+
+Please join us in wishing {{fullName}} a very happy birthday.</textarea>
+
       <button type="button" onclick="saveConfig()">Save Configuration</button>
       <div class="status" id="saveResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>Teacher Birthdays</h2>
+      <p>Birthdays are read from the database and shown for this month and next month.</p>
+      <table class="birthday-list">
+        <thead><tr><th>Month</th><th>Date</th><th>Teacher</th></tr></thead>
+        <tbody id="birthdaysBody"><tr><td colspan="3">Loading birthdays...</td></tr></tbody>
+      </table>
     </div>
 
     <div class="card">
@@ -93,6 +122,11 @@
         document.getElementById('groupName').value = config.groupName || '';
         document.getElementById('groupId').value = config.groupId || '';
         document.getElementById('messageFormat').value = config.messageFormat || '';
+        document.getElementById('birthdayEnabled').checked = config.birthdayEnabled !== false;
+        document.getElementById('birthdayTime').value = config.birthdayTime || '06:00';
+        document.getElementById('birthdayMessageFormat').value = config.birthdayMessageFormat || '';
+        document.getElementById('birthdayGroupMessageFormat').value = config.birthdayGroupMessageFormat || '';
+        loadBirthdays();
         return true;
       } catch (error) {
         document.getElementById('statusText').textContent = 'Local bot is not reachable. Start it with npm start.';
@@ -150,13 +184,50 @@
       }
     }
 
+    async function sendBirthdayMessages() {
+      try {
+        const response = await fetch(`${apiHost}/send-birthday`, { method: 'POST', mode: 'cors' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send birthdays');
+        showResult('actionResult', `Birthday messages processed: ${data.summary.sent} sent, ${data.summary.failed} failed.`);
+      } catch (error) {
+        showResult('actionResult', error.message, false);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+    }
+
+    async function loadBirthdays() {
+      try {
+        const response = await fetch(`${apiHost}/api/birthdays`, { mode: 'cors' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to load birthdays');
+        const currentMonth = new Date().getMonth() + 1;
+        document.getElementById('birthdaysBody').innerHTML = data.birthdays.length
+          ? data.birthdays.map(birthday => {
+              const date = birthday.DOB.slice(5).split('-').reverse().join('-');
+              const month = Number(birthday.DOB.slice(5, 7)) === currentMonth ? 'Current month' : 'Next month';
+              return `<tr><td>${month}</td><td>${escapeHtml(date)}</td><td>${escapeHtml(birthday.Teacher || '')}</td></tr>`;
+            }).join('')
+          : '<tr><td colspan="3">No birthdays found.</td></tr>';
+      } catch (error) {
+        document.getElementById('birthdaysBody').innerHTML = `<tr><td colspan="3">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
     async function saveConfig() {
       try {
         const payload = {
           sendTime: document.getElementById('sendTime').value,
           groupName: document.getElementById('groupName').value,
           groupId: document.getElementById('groupId').value,
-          messageFormat: document.getElementById('messageFormat').value
+          messageFormat: document.getElementById('messageFormat').value,
+          birthdayEnabled: document.getElementById('birthdayEnabled').checked,
+          birthdayTime: document.getElementById('birthdayTime').value,
+          birthdayMessageFormat: document.getElementById('birthdayMessageFormat').value,
+          birthdayGroupMessageFormat: document.getElementById('birthdayGroupMessageFormat').value
         };
         const response = await fetch(`${apiHost}/api/config`, {
           method: 'POST',
@@ -173,6 +244,7 @@
     }
 
     checkBackend();
+    loadBirthdays();
   </script>
 </body>
 </html>
