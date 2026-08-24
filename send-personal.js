@@ -1,27 +1,11 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs');
 const { readDutyRoster } = require('./database');
 require('dotenv').config();
 
-const CONFIG_FILE = 'config.json';
-
-function getISTTimeString() {
-  return new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-}
-
-function loadConfig() {
-  try {
-    const configData = fs.readFileSync(CONFIG_FILE, 'utf8');
-    return JSON.parse(configData);
-  } catch (error) {
-    return {
-      personalMessageFormat: `👋 Hi {{teacherName}},\n\nYou have been assigned morning duty tomorrow, that is on {{dutyDate}}.\n\nPlease ensure you are available at 6:45 AM.\n\n📋 School morning duty notification\n⏰ Sent at {{time}}\n\nIts a computer generated message, no need to reply.`
-    };
-  }
-}
-
-const config = loadConfig();
+const { config } = require('./lib/config');
+const { getISTTimeString } = require('./lib/time');
+const { resolveChatId } = require('./lib/chatLookup');
 
 const client = new Client({
   authStrategy: new LocalAuth(),
@@ -48,12 +32,8 @@ function formatMessage(teacherName, dutyDate, customMessage) {
 }
 
 async function sendMessage(phone, message) {
-  let phoneFormatted = phone.replace(/\D/g, '');
-  if (phoneFormatted.length === 10) {
-    phoneFormatted = '91' + phoneFormatted;
-  }
-  const chatId = `${phoneFormatted}@c.us`;
-  console.log(`Sending to ${phoneFormatted}: ${message.substring(0, 50)}...`);
+  const chatId = await resolveChatId(client, phone);
+  console.log(`Sending to ${phone}: ${message.substring(0, 50)}...`);
   return await client.sendMessage(chatId, message);
 }
 
@@ -64,7 +44,7 @@ client.on('qr', (qr) => {
 
 client.on('ready', async () => {
   console.log('Client is ready!');
-  
+
   const args = process.argv.slice(2);
   const phoneArg = args.find(arg => arg.startsWith('--phone='));
   const messageArg = args.find(arg => arg.startsWith('--message='));
@@ -72,13 +52,13 @@ client.on('ready', async () => {
   const dateArg = args.find(arg => arg.startsWith('--date='));
   const fromCsvArg = args.find(arg => arg.startsWith('--from-date='));
   const multiPhoneArg = args.find(arg => arg.startsWith('--phones='));
-  
+
   // Multi-phone mode
   if (multiPhoneArg) {
     const phones = multiPhoneArg.split('=')[1].split(',');
     const message = messageArg ? messageArg.split('=')[1] : null;
     let name = nameArg ? nameArg.split('=')[1] : null;
-    
+
     let successCount = 0, failCount = 0;
     for (const phone of phones) {
       try {
@@ -96,7 +76,7 @@ client.on('ready', async () => {
     await client.destroy();
     process.exit(0);
   }
-  
+
   // CSV by date mode
     if (fromCsvArg) {
       const targetDate = fromCsvArg.split('=')[1];
@@ -132,12 +112,12 @@ client.on('ready', async () => {
       }
     return;
   }
-  
+
   // Single phone mode
   const phone = phoneArg ? phoneArg.split('=')[1] : null;
   const customMessage = messageArg ? messageArg.split('=')[1] : null;
   const teacherName = nameArg ? nameArg.split('=')[1] : null;
-  
+
   if (!phone) {
     console.log('Usage:');
     console.log('  Single: node send-personal.js --phone=<number> [--message=<msg>] [--name=<name>]');
@@ -147,7 +127,7 @@ client.on('ready', async () => {
     await client.destroy();
     process.exit(1);
   }
-  
+
   try {
     const message = formatMessage(teacherName, dateArg ? dateArg.split('=')[1] : null, customMessage);
     console.log(`Sending message to ${phone}:`);
