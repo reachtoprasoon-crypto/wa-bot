@@ -135,6 +135,71 @@ function elegantDecor(rand) {
     ${corner(70, 70, 1, 1)}${corner(CARD_SIZE - 70, 70, -1, 1)}${corner(70, CARD_SIZE - 70, 1, -1)}${corner(CARD_SIZE - 70, CARD_SIZE - 70, -1, -1)}`;
 }
 
+function starsDecor(rand) {
+  const colors = ['#fef9c3', '#fde68a', '#e0e7ff', '#c7d2fe', '#ffffff'];
+  const star = (cx, cy, r, rot) => {
+    const inner = r * 0.42;
+    const pts = [];
+    for (let i = 0; i < 8; i++) {
+      const ang = (Math.PI / 4) * i - Math.PI / 2;
+      const rad = i % 2 === 0 ? r : inner;
+      pts.push(`${(cx + rad * Math.cos(ang)).toFixed(1)},${(cy + rad * Math.sin(ang)).toFixed(1)}`);
+    }
+    return `<polygon points="${pts.join(' ')}" transform="rotate(${rot.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})"/>`;
+  };
+  let out = '';
+  for (let i = 0; i < 55; i++) {
+    const x = rand() * CARD_SIZE;
+    const y = rand() * CARD_SIZE;
+    const r = 6 + rand() * 14;
+    const color = colors[Math.floor(rand() * colors.length)];
+    const opacity = (0.35 + rand() * 0.55).toFixed(2);
+    out += `<g fill="${color}" opacity="${opacity}">${star(x, y, r, rand() * 360)}</g>`;
+  }
+  for (let i = 0; i < 70; i++) {
+    out += `<circle cx="${(rand() * CARD_SIZE).toFixed(1)}" cy="${(rand() * CARD_SIZE).toFixed(1)}" r="${(1 + rand() * 2.5).toFixed(1)}" fill="#ffffff" opacity="${(0.3 + rand() * 0.5).toFixed(2)}"/>`;
+  }
+  return out;
+}
+
+function buntingDecor(rand) {
+  const colors = ['#fde047', '#38bdf8', '#f472b6', '#4ade80', '#fb923c'];
+  let out = '';
+  [110, CARD_SIZE - 110].forEach((y) => {
+    out += `<path d="M 0 ${y - 30} Q ${CARD_SIZE / 2} ${y + 30}, ${CARD_SIZE} ${y - 30}" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="3"/>`;
+    const count = 13;
+    for (let i = 0; i < count; i++) {
+      const t = i / (count - 1);
+      const x = t * CARD_SIZE;
+      const sag = Math.sin(t * Math.PI) * 30;
+      const flagY = y - 30 + sag;
+      const w = 34;
+      const h = 46;
+      const color = colors[i % colors.length];
+      out += `<path d="M ${(x - w / 2).toFixed(1)} ${flagY.toFixed(1)} L ${(x + w / 2).toFixed(1)} ${flagY.toFixed(1)} L ${x.toFixed(1)} ${(flagY + h).toFixed(1)} Z" fill="${color}" opacity="0.88"/>`;
+    }
+  });
+  for (let i = 0; i < 30; i++) {
+    out += `<circle cx="${(rand() * CARD_SIZE).toFixed(1)}" cy="${(rand() * CARD_SIZE).toFixed(1)}" r="${(3 + rand() * 5).toFixed(1)}" fill="#ffffff" opacity="${(0.2 + rand() * 0.35).toFixed(2)}"/>`;
+  }
+  return out;
+}
+
+function bubbleDecor(rand) {
+  const colors = ['#fbcfe8', '#ddd6fe', '#bae6fd', '#bbf7d0', '#fef08a'];
+  let out = '';
+  for (let i = 0; i < 46; i++) {
+    const x = rand() * CARD_SIZE;
+    const y = rand() * CARD_SIZE;
+    const r = 14 + rand() * 46;
+    const color = colors[Math.floor(rand() * colors.length)];
+    const opacity = (0.35 + rand() * 0.4).toFixed(2);
+    out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${color}" opacity="${opacity}"/>`;
+    out += `<circle cx="${(x - r / 3).toFixed(1)}" cy="${(y - r / 3).toFixed(1)}" r="${(r / 5).toFixed(1)}" fill="#ffffff" opacity="0.5"/>`;
+  }
+  return out;
+}
+
 const THEMES = {
   confetti: {
     label: 'Confetti (purple)',
@@ -165,6 +230,36 @@ const THEMES = {
     accent: '#b45309',
     muted: '#8a6a34',
     decor: elegantDecor,
+  },
+  stars: {
+    label: 'Starry Night (midnight)',
+    background: 'linear-gradient(155deg, #0f172a 0%, #1e3a8a 55%, #312e81 100%)',
+    glow: 'radial-gradient(circle at 50% 30%, rgba(255,255,255,0.22), rgba(255,255,255,0) 55%)',
+    panel: 'rgba(255,255,255,0.95)',
+    ink: '#1e1b4b',
+    accent: '#4338ca',
+    muted: '#4f46e5',
+    decor: starsDecor,
+  },
+  fiesta: {
+    label: 'Fiesta (bunting)',
+    background: 'linear-gradient(155deg, #f59e0b 0%, #ef4444 50%, #ec4899 100%)',
+    glow: 'radial-gradient(circle at 50% 28%, rgba(255,255,255,0.3), rgba(255,255,255,0) 58%)',
+    panel: 'rgba(255,255,255,0.95)',
+    ink: '#7c2d12',
+    accent: '#dc2626',
+    muted: '#b45309',
+    decor: buntingDecor,
+  },
+  pastel: {
+    label: 'Pastel (bubbles)',
+    background: 'linear-gradient(155deg, #fdf2f8 0%, #ede9fe 50%, #e0f2fe 100%)',
+    glow: 'radial-gradient(circle at 50% 28%, rgba(255,255,255,0.7), rgba(255,255,255,0) 60%)',
+    panel: 'rgba(255,255,255,0.85)',
+    ink: '#3730a3',
+    accent: '#a855f7',
+    muted: '#7c3aed',
+    decor: bubbleDecor,
   },
 };
 
