@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node tests/birthdayUtils.test.js",
+    "test": "node tests/birthdayUtils.test.js && node tests/birthdayCard.test.js",
     "send-now": "node send-now.js",
     "send-personal": "node send-personal.js"
   },

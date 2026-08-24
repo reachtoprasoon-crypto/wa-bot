@@ -1,4 +1,4 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
@@ -6,6 +6,7 @@ const express = require('express');
 require('dotenv').config();
 
 const { readDutyRoster, readTeacherBirthdays } = require('./database');
+const { renderBirthdayCard, themeList } = require('./birthdayCard');
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 /**
@@ -51,6 +52,17 @@ function loadConfig() {
   }
 }
 
+// Defaults for the birthday image card (message rendered as a graphic)
+const BIRTHDAY_CARD_DEFAULTS = {
+  birthdayImageEnabled: true,
+  birthdayCaptionEnabled: true,
+  birthdayCardTheme: 'confetti',
+  birthdayCardHeadline: 'Happy Birthday!',
+  birthdayCardFooter: '{{date}}',
+  birthdayCardMessageFormat: 'Wishing you a wonderful day filled with happiness and success.\n\nWith warm wishes from everyone at school.',
+  birthdayCardGroupMessageFormat: 'Please join us in wishing {{fullName}} a very happy birthday.\n\nMay the year ahead bring joy and success.',
+};
+
 // Save configuration
 function saveConfig(config) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
@@ -61,27 +73,40 @@ config.birthdayEnabled = config.birthdayEnabled !== false;
 config.birthdayTime = config.birthdayTime || '06:00';
 config.birthdayMessageFormat = config.birthdayMessageFormat || '🎂 Happy Birthday, {{fullName}}! 🎉\n\nWishing you a wonderful day filled with happiness and success.\n\nBest wishes from everyone at school!';
 config.birthdayGroupMessageFormat = config.birthdayGroupMessageFormat || '🎂 *Happy Birthday, {{fullName}}!* 🎉\n\nPlease join us in wishing {{fullName}} a very happy birthday. May your day be filled with happiness and success!';
+config.birthdayImageEnabled = config.birthdayImageEnabled !== false;
+config.birthdayCaptionEnabled = config.birthdayCaptionEnabled !== false;
+config.birthdayCardTheme = config.birthdayCardTheme || BIRTHDAY_CARD_DEFAULTS.birthdayCardTheme;
+config.birthdayCardHeadline = config.birthdayCardHeadline || BIRTHDAY_CARD_DEFAULTS.birthdayCardHeadline;
+config.birthdayCardFooter = config.birthdayCardFooter === undefined ? BIRTHDAY_CARD_DEFAULTS.birthdayCardFooter : config.birthdayCardFooter;
+config.birthdayCardMessageFormat = config.birthdayCardMessageFormat || BIRTHDAY_CARD_DEFAULTS.birthdayCardMessageFormat;
+config.birthdayCardGroupMessageFormat = config.birthdayCardGroupMessageFormat || BIRTHDAY_CARD_DEFAULTS.birthdayCardGroupMessageFormat;
 let scheduleTimeout = null;
 let birthdayScheduleTimeout = null;
 let isClientReady = false;
-let client = new Client({
-  authStrategy: new LocalAuth(),
-  userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-  puppeteer: {
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-web-resources',
-      '--disable-component-update',
-    ],
-    timeout: 60000,
-  },
-});
+let isReconnecting = false;
+
+function createClientOptions() {
+  return {
+    authStrategy: new LocalAuth(),
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+    puppeteer: {
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-web-resources',
+        '--disable-component-update',
+      ],
+      timeout: 60000,
+    },
+  };
+}
+
+let client = new Client(createClientOptions());
 
 // Express app for configuration interface
 const app = express();
@@ -128,28 +153,8 @@ async function initializeClient(retryCount = 0, maxRetries = 3) {
     if (retryCount < maxRetries) {
       const delayMs = (retryCount + 1) * 5000; // 5s, 10s, 15s delays
       console.log(`[${getISTTime()}] Retrying in ${delayMs/1000}s...`);
-      
-      // Create a fresh client instance for retry
-      client = new Client({
-        authStrategy: new LocalAuth(),
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-        puppeteer: {
-          headless: 'new',
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-extensions',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-web-resources',
-            '--disable-component-update',
-          ],
-          timeout: 60000,
-        },
-      });
-      
-      // Re-attach event listeners to new client
+
+      client = new Client(createClientOptions());
       attachClientListeners();
       
       await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -194,14 +199,44 @@ function attachClientListeners() {
     console.error('Authentication failed:', msg);
   });
 
-  client.on('disconnected', (reason) => {
-    console.log('Client was logged out:', reason);
+  client.on('disconnected', async (reason) => {
+    console.log(`[${getISTTime()}] Client disconnected: ${reason}. Scheduling reconnect...`);
+    isClientReady = false;
+    clearDailySchedule();
+    clearBirthdaySchedule();
+    await reconnect();
   });
 
   client.on('error', (error) => {
     console.error('Client error:', error.message);
     console.error('Error details:', error);
   });
+
+  // Logs the chat ID for any group message received, so a group's ID can be
+  // captured (e.g. by sending a message in it from the phone) without relying
+  // on client.getChats(), which can fail for a group whose metadata hasn't
+  // fully synced yet (such as one just created).
+  client.on('message', (msg) => {
+    if (msg.from && msg.from.endsWith('@g.us')) {
+      console.log(`[${getISTTime()}] Message received in group ${msg.from} (from ${msg._data?.notifyName || msg.author || 'unknown'})`);
+    }
+  });
+}
+
+async function reconnect() {
+  if (isReconnecting) return;
+  isReconnecting = true;
+  console.log(`[${getISTTime()}] Reconnecting WhatsApp client...`);
+  try {
+    await client.destroy();
+  } catch (err) {
+    console.warn(`[${getISTTime()}] Warning during destroy:`, err.message);
+  }
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  client = new Client(createClientOptions());
+  attachClientListeners();
+  isReconnecting = false;
+  await initializeClient();
 }
 
 // Start the web interface immediately, then initialize the client in the background.
@@ -269,7 +304,78 @@ function formatBirthdayMessage(teacher, template) {
   return (template || '')
     .replace(/\{\{fullName\}\}/gi, fullName)
     .replace(/\{\{teacherName\}\}/gi, teacherName)
-    .replace(/\{\{time\}\}/gi, getISTTimeString());
+    .replace(/\{\{time\}\}/gi, getISTTimeString())
+    .replace(/\{\{date\}\}/gi, getISTDateText());
+}
+
+/**
+ * Today's date in IST, spelled out (e.g. "23 August 2026")
+ */
+function getISTDateText() {
+  return new Date().toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric'
+  });
+}
+
+/**
+ * Render the birthday wish as a PNG card and wrap it as WhatsApp media.
+ */
+async function buildBirthdayCard(teacher, cardTemplate) {
+  const fullName = teacher.Teacher || teacher.name || 'Teacher';
+  const png = await renderBirthdayCard({
+    name: fullName,
+    headline: formatBirthdayMessage(teacher, config.birthdayCardHeadline),
+    message: formatBirthdayMessage(teacher, cardTemplate),
+    footer: formatBirthdayMessage(teacher, config.birthdayCardFooter),
+    theme: config.birthdayCardTheme,
+    browser: client && client.pupBrowser,
+  });
+  const fileName = `birthday-${fullName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`;
+  return new MessageMedia('image/png', png.toString('base64'), fileName);
+}
+
+/**
+ * Send one birthday wish as an image card, falling back to plain text if the
+ * card cannot be rendered or sent.
+ */
+async function sendBirthdayWish(chatId, teacher, textTemplate, cardTemplate) {
+  const text = formatBirthdayMessage(teacher, textTemplate);
+
+  if (config.birthdayImageEnabled === false) {
+    return client.sendMessage(chatId, text);
+  }
+
+  try {
+    const media = await buildBirthdayCard(teacher, cardTemplate || textTemplate);
+    const options = config.birthdayCaptionEnabled === false ? {} : { caption: text };
+    return await client.sendMessage(chatId, media, options);
+  } catch (error) {
+    console.error(`[${getISTTime()}] Birthday card failed, sending text instead:`, error.message);
+    return client.sendMessage(chatId, text);
+  }
+}
+
+/**
+ * Looks up group chats directly from WhatsApp Web's in-memory Store, instead
+ * of client.getChats() — which calls groupMetadata.update() for every group
+ * and fails outright if even one group's metadata hasn't synced yet. This
+ * reads names/IDs already cached on the chat objects, so no network
+ * round-trip (and thus no such failure) is needed.
+ * @param {string} [query] Case-insensitive substring to filter names by.
+ * @returns {Promise<Array<{name: string, id: string}>>}
+ */
+async function findGroupsInStore(query) {
+  const q = (query || '').trim().toLowerCase();
+  return client.pupPage.evaluate((q) => {
+    const chats = window.require('WAWebCollections').Chat.getModelsArray();
+    return chats
+      .filter((chat) => !!chat.groupMetadata)
+      .map((chat) => ({
+        name: chat.formattedTitle || chat.name || '',
+        id: chat.id._serialized,
+      }))
+      .filter((g) => !q || g.name.toLowerCase().includes(q));
+  }, q);
 }
 
 function getChatIdForPhone(phone) {
@@ -342,6 +448,10 @@ async function sendPersonalMessages(duties) {
  * Send duty message to the group
  */
 async function sendDutyMessage() {
+  if (!isClientReady) {
+    console.error(`[${getISTTime()}] Cannot send duty message - client not ready`);
+    return;
+  }
   try {
     console.log(`[${getISTTime()}] Attempting to send message to group: "${config.groupName}"`);
     
@@ -363,22 +473,36 @@ async function sendDutyMessage() {
     let targetChat;
     let targetChatId = (config.groupId || '').trim();
 
+    // When a group ID is configured, send directly to it and stop there — do
+    // not fall through to the name-based getChats() lookup. In testing,
+    // whatsapp-web.js's confirmation step for group sends has proven
+    // unreliable (it can return no result, or throw) even when the message
+    // was actually dispatched and delivered, so neither outcome here is
+    // treated as a real failure; both proceed to the personal messages.
     if (targetChatId) {
       console.log(`Sending directly to configured group ID: ${targetChatId}`);
+      let result;
+      let confirmed = true;
       try {
-        const result = await client.sendMessage(targetChatId, message);
-        const messageId = result?.id?._serialized || result?.id?.id || result?.id || 'N/A';
+        result = await client.sendMessage(targetChatId, message);
+        confirmed = !!result;
+      } catch (directSendError) {
+        confirmed = false;
+        console.error(`Direct send didn't return a confirmation (message was likely still delivered):`, directSendError.message);
+      }
+      if (confirmed) {
+        const messageId = result?.id?._serialized || result?.id?.id || 'N/A';
         console.log(`✓ Group message sent successfully at ${getISTTime()}!`);
         console.log(`Message ID: ${messageId}`);
-        console.log(`Message sent to chat ID: ${targetChatId}`);
-
-        // Send personal messages to teachers with duties
-        console.log('\n📤 Sending personal messages to teachers...');
-        await sendPersonalMessages(tomorrowDuties);
-        return;
-      } catch (directSendError) {
-        console.error(`Direct send to configured group ID failed:`, directSendError.message);
+      } else {
+        console.log(`Group message dispatched at ${getISTTime()} — no confirmation returned, please verify manually.`);
       }
+      console.log(`Message sent to chat ID: ${targetChatId}`);
+
+      // Send personal messages to teachers with duties
+      console.log('\n📤 Sending personal messages to teachers...');
+      await sendPersonalMessages(tomorrowDuties);
+      return;
     }
 
     if (!targetChat) {
@@ -421,10 +545,19 @@ async function sendDutyMessage() {
   } catch (error) {
     console.error('Error sending message:', error.message);
     console.error('Full error:', error);
+    if (error.message && (error.message.includes('detached Frame') || error.message.includes('Session closed') || error.message.includes('Target closed'))) {
+      console.error(`[${getISTTime()}] Puppeteer session lost. Triggering reconnect...`);
+      isClientReady = false;
+      reconnect().catch(e => console.error('Reconnect failed:', e.message));
+    }
   }
 }
 
 async function sendBirthdayMessages() {
+  if (!isClientReady) {
+    console.error(`[${getISTTime()}] Cannot send birthday messages - client not ready`);
+    return { sent: 0, failed: 0 };
+  }
   const today = getISTNow();
   const month = today.getMonth() + 1;
   const monthDay = `${String(month).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -434,34 +567,40 @@ async function sendBirthdayMessages() {
   console.log(`[${getISTTime()}] Found ${birthdays.length} birthdays for ${monthDay}`);
   if (birthdays.length === 0) return { sent: 0, failed: 0 };
 
-  let targetChat;
-  const targetChatId = (config.groupId || '').trim();
-  if (targetChatId) {
+  // Prefer the configured group ID directly, without verifying it first via
+  // getChatById/getChats — both call groupMetadata.update() and fail outright
+  // if that group's metadata hasn't synced, even though sending to the ID
+  // works fine regardless. Only fall back to a name-based lookup (via the
+  // in-memory Store, not client.getChats()) when no ID is configured.
+  let groupChatId = (config.groupId || '').trim();
+  if (!groupChatId) {
     try {
-      targetChat = await client.getChatById(targetChatId);
+      const matches = await findGroupsInStore(config.groupName);
+      const exact = matches.find(g => g.name === config.groupName);
+      groupChatId = (exact || matches[0])?.id;
     } catch (error) {
-      console.error(`Could not find birthday group by ID ${targetChatId}:`, error.message);
+      console.error(`Could not look up birthday group by name:`, error.message);
     }
   }
-  if (!targetChat) {
-    const chats = await client.getChats();
-    targetChat = chats.find(chat => chat.name === config.groupName);
-  }
-  if (!targetChat) throw new Error(`Group ${config.groupName} not found`);
+  if (!groupChatId) throw new Error(`Group ${config.groupName} not found`);
 
   let sent = 0;
   let failed = 0;
   for (const teacher of birthdays) {
     const fullName = teacher.Teacher || teacher.name || 'Teacher';
     try {
-      await client.sendMessage(
-        targetChat.id._serialized,
-        formatBirthdayMessage(teacher, config.birthdayGroupMessageFormat)
+      await sendBirthdayWish(
+        groupChatId,
+        teacher,
+        config.birthdayGroupMessageFormat,
+        config.birthdayCardGroupMessageFormat
       );
       if (!teacher.Phone) throw new Error('No phone number found');
-      await client.sendMessage(
+      await sendBirthdayWish(
         getChatIdForPhone(teacher.Phone),
-        formatBirthdayMessage(teacher, config.birthdayMessageFormat)
+        teacher,
+        config.birthdayMessageFormat,
+        config.birthdayCardMessageFormat
       );
       sent++;
       console.log(`Birthday messages sent for ${fullName}`);
@@ -834,40 +973,60 @@ app.post('/send-to-group', async (req, res) => {
     let targetChat;
     let targetChatId = (config.groupId || '').trim();
 
+    // When a group ID is configured, send directly to it and stop there.
+    // whatsapp-web.js's confirmation step for group sends has proven unreliable
+    // in testing — it can return no result, or throw, even though the message
+    // was actually dispatched and delivered. Falling through to a name-based
+    // getChats() lookup on top of that just produces a misleading "not found"
+    // for a group that plainly received the message, so we don't do that here.
     if (targetChatId) {
+      let result;
+      let confirmed = true;
       try {
-        const result = await client.sendMessage(targetChatId, testMessage);
-        return res.json({
-          success: true,
-          message: 'Test message sent to group',
-          messageId: result.id?.id,
-          groupId: targetChatId,
-          groupName: config.groupName,
-          isGroup: true
-        });
+        result = await client.sendMessage(targetChatId, testMessage);
+        confirmed = !!result;
       } catch (directSendError) {
-        console.error(`Direct send to configured group ID failed:`, directSendError.message);
+        confirmed = false;
+        console.error(`Direct send to configured group ID didn't return a confirmation (message was likely still delivered):`, directSendError.message);
       }
+      return res.json({
+        success: true,
+        message: confirmed
+          ? 'Test message sent to group'
+          : "WhatsApp Web didn't confirm the send, but the message was likely delivered — please verify in the group.",
+        messageId: result?.id?._serialized || result?.id?.id || 'N/A',
+        groupId: targetChatId,
+        groupName: config.groupName,
+        isGroup: true
+      });
     }
 
+    let availableGroups = [];
+    let chatsErrorMessage;
     if (!targetChat) {
       try {
         const chats = await client.getChats();
+        availableGroups = chats.filter(c => c.isGroup).map(c => ({ name: c.name, id: c.id._serialized }));
         targetChat = chats.find(chat => chat.name === config.groupName);
       } catch (chatsError) {
+        chatsErrorMessage = chatsError.message;
         console.error(`Could not load chat list for fallback lookup:`, chatsError.message);
       }
     }
 
     if (!targetChat) {
-      return res.status(404).json({ error: `Group ${config.groupName} not found` });
+      return res.status(404).json({
+        error: `Group ${config.groupName} not found`,
+        chatListError: chatsErrorMessage,
+        availableGroups
+      });
     }
 
     const result = await client.sendMessage(targetChat.id._serialized, testMessage);
     res.json({
       success: true,
       message: 'Test message sent to group',
-      messageId: result.id?.id,
+      messageId: result?.id?._serialized || result?.id?.id || 'N/A',
       groupId: targetChat.id._serialized,
       groupName: targetChat.name,
       isGroup: targetChat.isGroup
@@ -971,7 +1130,7 @@ app.post('/send-personal', async (req, res) => {
         const result = await client.sendMessage(chatId, personalMessage);
         console.log(`✓ Personal message sent`);
         successCount++;
-        results.push({ phone: phoneFormatted, success: true, messageId: result.id.id });
+        results.push({ phone: phoneFormatted, success: true, messageId: result?.id?._serialized || result?.id?.id || result?.id || 'N/A' });
 
         // Small delay to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -1047,7 +1206,7 @@ app.post('/send-bulk', async (req, res) => {
 
         const result = await client.sendMessage(chatId, msg);
         successCount++;
-        results.push({ phone: phoneFormatted, success: true, messageId: result.id.id });
+        results.push({ phone: phoneFormatted, success: true, messageId: result?.id?._serialized || result?.id?.id || result?.id || 'N/A' });
 
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
@@ -1104,6 +1263,32 @@ app.get('/api/duties', async (req, res) => {
   }
 });
 
+/**
+ * List groups the bot's WhatsApp account can currently see, for diagnosing
+ * "group not found" errors caused by name mismatches or missing membership.
+ */
+/**
+ * List groups the bot's WhatsApp account can see, optionally filtered by a
+ * case-insensitive substring match on the group name (?name=...).
+ *
+ * This reads the chat list directly from WhatsApp Web's in-memory Store
+ * instead of using client.getChats(), which calls groupMetadata.update() for
+ * every group and fails outright if even one group's metadata isn't synced
+ * yet. Group names/IDs are already present on the cached chat objects, so no
+ * network round-trip (and thus no such failure) is needed to look them up.
+ */
+app.get('/api/groups', async (req, res) => {
+  if (!isClientReady) {
+    return res.status(503).json({ error: 'WhatsApp client not ready yet' });
+  }
+  try {
+    const groups = await findGroupsInStore(req.query.name);
+    res.json({ groups });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/birthdays', async (req, res) => {
   try {
     const now = getISTNow();
@@ -1116,12 +1301,49 @@ app.get('/api/birthdays', async (req, res) => {
   }
 });
 
+app.get('/api/birthday-card-themes', (req, res) => {
+  res.json({ themes: themeList() });
+});
+
+/**
+ * Preview the birthday card as a PNG.
+ * GET /api/birthday-card-preview?type=personal|group&name=...&theme=...
+ * Unsaved template/theme values may be passed as query params so the control
+ * panel can preview edits before they are saved.
+ */
+app.get('/api/birthday-card-preview', async (req, res) => {
+  try {
+    const type = req.query.type === 'group' ? 'group' : 'personal';
+    const teacher = { Teacher: (req.query.name || '').trim() || 'Teacher Name' };
+    const template = req.query.message
+      || (type === 'group' ? config.birthdayCardGroupMessageFormat : config.birthdayCardMessageFormat);
+
+    const png = await renderBirthdayCard({
+      name: teacher.Teacher,
+      headline: formatBirthdayMessage(teacher, req.query.headline || config.birthdayCardHeadline),
+      message: formatBirthdayMessage(teacher, template),
+      footer: formatBirthdayMessage(teacher, req.query.footer !== undefined ? req.query.footer : config.birthdayCardFooter),
+      theme: req.query.theme || config.birthdayCardTheme,
+      browser: client && client.pupBrowser,
+    });
+
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'no-store');
+    res.send(png);
+  } catch (error) {
+    console.error('Birthday card preview failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * Update configuration
  */
 app.post('/api/config', (req, res) => {
   const { sendTime, groupName, groupId, messageFormat, personalMessageFormat,
-    birthdayEnabled, birthdayTime, birthdayMessageFormat, birthdayGroupMessageFormat } = req.body;
+    birthdayEnabled, birthdayTime, birthdayMessageFormat, birthdayGroupMessageFormat,
+    birthdayImageEnabled, birthdayCaptionEnabled, birthdayCardTheme, birthdayCardHeadline,
+    birthdayCardFooter, birthdayCardMessageFormat, birthdayCardGroupMessageFormat } = req.body;
 
   if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(sendTime)) {
     return res.status(400).json({ error: 'Invalid time format. Use HH:MM between 00:00 and 23:59' });
@@ -1141,6 +1363,14 @@ app.post('/api/config', (req, res) => {
   config.birthdayTime = birthdayTime;
   config.birthdayMessageFormat = birthdayMessageFormat || config.birthdayMessageFormat;
   config.birthdayGroupMessageFormat = birthdayGroupMessageFormat || config.birthdayGroupMessageFormat;
+
+  if (birthdayImageEnabled !== undefined) config.birthdayImageEnabled = birthdayImageEnabled !== false;
+  if (birthdayCaptionEnabled !== undefined) config.birthdayCaptionEnabled = birthdayCaptionEnabled !== false;
+  if (birthdayCardTheme) config.birthdayCardTheme = birthdayCardTheme;
+  if (birthdayCardHeadline !== undefined) config.birthdayCardHeadline = birthdayCardHeadline;
+  if (birthdayCardFooter !== undefined) config.birthdayCardFooter = birthdayCardFooter;
+  config.birthdayCardMessageFormat = birthdayCardMessageFormat || config.birthdayCardMessageFormat;
+  config.birthdayCardGroupMessageFormat = birthdayCardGroupMessageFormat || config.birthdayCardGroupMessageFormat;
 
   saveConfig(config);
   rescheduleDailyMessage();
@@ -1189,7 +1419,7 @@ app.post('/send-personal-message', async (req, res) => {
     }
     
     const result = await client.sendMessage(chatId, msg);
-    res.json({ success: true, phone: phoneFormatted, messageId: result.id.id });
+    res.json({ success: true, phone: phoneFormatted, messageId: result?.id?._serialized || result?.id?.id || result?.id || 'N/A' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

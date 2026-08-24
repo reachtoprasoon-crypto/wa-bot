@@ -76,7 +76,26 @@ The message format supports placeholders:
 - `{{duties}}` - Replaced with the formatted duty list
 - `{{time}}` - Replaced with the current time when sending
 
-Birthday templates also support `{{fullName}}`, `{{teacherName}}`, and `{{time}}`. The control panel lists birthdays from the current and following month directly from the database.
+Birthday templates also support `{{fullName}}`, `{{teacherName}}`, `{{time}}`, and `{{date}}`. The control panel lists birthdays from the current and following month directly from the database.
+
+### Birthday Image Cards
+
+Birthday wishes are sent as an image by default: the wish is drawn into a 1080×1080 PNG card (headline, teacher's name, message, footer) and sent with the text message as the caption. The card is rendered with the Chromium instance `whatsapp-web.js` already runs, so there are no extra dependencies. If rendering or sending the image fails for any reason, the bot falls back to the plain text message.
+
+Configure it under **Birthday Message Settings** in the control panel:
+
+| Setting | `config.json` key | Notes |
+| --- | --- | --- |
+| Send as image card | `birthdayImageEnabled` | Turn off for text-only wishes (previous behaviour) |
+| Include text as caption | `birthdayCaptionEnabled` | Off sends the image with no caption |
+| Card theme | `birthdayCardTheme` | `confetti`, `balloons`, or `elegant` |
+| Card headline | `birthdayCardHeadline` | Large accent line, e.g. `Happy Birthday!` |
+| Card text — teacher / group | `birthdayCardMessageFormat`, `birthdayCardGroupMessageFormat` | Drawn on the card; blank lines start a new paragraph |
+| Card footer | `birthdayCardFooter` | Small caps line, defaults to `{{date}}` |
+
+Emoji and WhatsApp markup (`*bold*`, `_italic_`) are stripped from the drawn text — servers often lack a colour emoji font — but stay intact in the caption. Card text is auto-shrunk to fit, so long names and long messages stay inside the card.
+
+Preview buttons in the control panel render the card with the values currently in the form (`GET /api/birthday-card-preview?type=personal|group`) before you save.
 
 Example format:
 ```

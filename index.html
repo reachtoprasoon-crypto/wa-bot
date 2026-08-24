@@ -5,246 +5,579 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WA Bot Control Panel</title>
   <style>
-    body { font-family: Inter, system-ui, sans-serif; margin: 0; padding: 0; background: #f3f4f6; color: #111827; }
-    .page { max-width: 980px; margin: 0 auto; padding: 24px; }
-    .card { background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); padding: 28px; margin-top: 20px; }
-    h1, h2 { margin: 0; }
-    p { line-height: 1.7; }
-    label { display: block; margin-top: 18px; font-weight: 600; }
-    input, textarea, button { width: 100%; border: 1px solid #d1d5db; border-radius: 12px; padding: 12px 14px; margin-top: 8px; font-size: 1rem; }
-    textarea { resize: vertical; min-height: 140px; }
-    button { background: #2563eb; color: #fff; border: none; cursor: pointer; transition: background 0.2s ease; }
-    button:hover { background: #1d4ed8; }
-    .button-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 18px; }
-    .status { margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #f8fafc; border: 1px solid #e5e7eb; }
-    .status strong { display: block; margin-bottom: 4px; }
-    .notice { color: #1d4ed8; margin-top: 12px; }
-    .birthday-list { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    .birthday-list th, .birthday-list td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
-    .birthday-list th { background: #f8fafc; }
-    .inline-control { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
-    .inline-control input { width: auto; margin: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: Inter, system-ui, sans-serif; margin: 0; padding: 0; background: #f1f5f9; color: #0f172a; }
+    .page { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    h2 { margin: 0 0 16px; font-size: 1.15rem; color: #1e40af; }
+    p { margin: 0 0 12px; line-height: 1.6; color: #475569; }
+    .card { background: #fff; border-radius: 18px; box-shadow: 0 4px 24px rgba(15,23,42,0.07); padding: 24px; margin-top: 20px; }
+
+    /* Status bar */
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-top: 4px; }
+    .stat { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
+    .stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .stat-value { font-size: 1rem; font-weight: 600; color: #0f172a; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    .badge-yellow { background: #fef9c3; color: #a16207; }
+
+    /* Buttons */
+    .btn-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 4px; }
+    button { border: none; border-radius: 12px; padding: 12px 18px; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: opacity .15s, box-shadow .15s; }
+    button:hover { opacity: .88; }
+    button:active { opacity: .75; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-warn { background: #d97706; color: #fff; }
+    .btn-gray { background: #e2e8f0; color: #334155; }
+    .btn-danger { background: #dc2626; color: #fff; }
+
+    /* Forms */
+    label { display: block; margin-top: 16px; font-size: 0.85rem; font-weight: 600; color: #374151; }
+    input[type="text"], input[type="time"], input[type="tel"], input[type="date"], textarea, select {
+      display: block; width: 100%; margin-top: 6px; padding: 10px 14px; border: 1px solid #d1d5db;
+      border-radius: 10px; font-size: 0.95rem; background: #f9fafb; color: #111827;
+      transition: border-color .15s;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #2563eb; background: #fff; }
+    textarea { resize: vertical; min-height: 120px; }
+    .checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+    .checkbox-row input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+    .checkbox-row label { margin: 0; cursor: pointer; }
+
+    /* Feedback */
+    .feedback { margin-top: 14px; padding: 12px 16px; border-radius: 10px; font-size: 0.9rem; min-height: 20px; }
+    .feedback-ok { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .feedback-err { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    .feedback-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9rem; }
+    th { text-align: left; padding: 10px 12px; background: #f8fafc; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .checkbox-cell { width: 36px; text-align: center; }
+
+    /* Scrollable table wrapper, for cards with long recipient lists */
+    .table-scroll { max-height: 320px; overflow-y: auto; margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .table-scroll table { margin-top: 0; }
+    .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
+
+    /* Collapsible sections */
+    details summary { cursor: pointer; font-weight: 600; color: #2563eb; padding: 4px 0; list-style: none; }
+    details summary::before { content: '▶ '; font-size: .75rem; }
+    details[open] summary::before { content: '▼ '; }
+    details { margin-top: 12px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="card">
-      <h1>WA Bot Control Panel</h1>
-      <p>This page is the GitHub Pages landing page for your WhatsApp duty roster bot. It can connect to a local bot server running on <code>http://localhost:3000</code>.</p>
-      <div class="status" id="statusBox">
-        <strong>Bot status:</strong>
-        <span id="statusText">Checking local bot status...</span>
+<div class="page">
+
+  <!-- Status -->
+  <div class="card">
+    <h1>WA Bot Control Panel</h1>
+    <div class="status-grid" style="margin-top:16px">
+      <div class="stat">
+        <div class="stat-label">WhatsApp</div>
+        <div class="stat-value" id="statReady"><span class="badge badge-yellow">Checking...</span></div>
       </div>
-      <p class="notice">If the local bot is not running, start it with <code>npm start</code> in this repository.</p>
-    </div>
-
-    <div class="card">
-      <h2>Quick actions</h2>
-      <div class="button-row">
-        <button type="button" onclick="openLocalInterface()">Open Local Interface</button>
-        <button type="button" onclick="sendTestGroup()">Send Test to Group</button>
-        <button type="button" onclick="sendTestPhone()">Send Test to Phone</button>
-        <button type="button" onclick="sendDutyMessage()">Send Duty Message Now</button>
-        <button type="button" onclick="sendBirthdayMessages()">Send Birthday Messages Now</button>
+      <div class="stat">
+        <div class="stat-label">Current IST Time</div>
+        <div class="stat-value" id="statTime">—</div>
       </div>
-      <div class="status" id="actionResult"></div>
-    </div>
-
-    <div class="card">
-      <h2>Configure bot</h2>
-      <p>Use this form to update bot settings on your local server.</p>
-      <label for="sendTime">Send Time</label>
-      <input type="time" id="sendTime" />
-
-      <label for="groupName">Group Name</label>
-      <input type="text" id="groupName" placeholder="VSEC AVADH OFFICIAL" />
-
-      <label for="groupId">Group ID (Optional)</label>
-      <input type="text" id="groupId" placeholder="120363428035369512@g.us" />
-
-      <label for="messageFormat">Message Format</label>
-      <textarea id="messageFormat">📋 *Tomorrow's Morning Duty* 📋
-
-{{duties}}
-
----
-⏰ Sent at {{time}}</textarea>
-
-  <label class="inline-control" for="birthdayEnabled"><input type="checkbox" id="birthdayEnabled" /> Enable birthday messages</label>
-  <label for="birthdayTime">Birthday Send Time</label>
-  <input type="time" id="birthdayTime" value="06:00" />
-
-  <label for="birthdayMessageFormat">Birthday Message to Teacher</label>
-  <textarea id="birthdayMessageFormat">🎂 Happy Birthday, {{fullName}}! 🎉
-
-Wishing you a wonderful day filled with happiness and success.</textarea>
-
-  <label for="birthdayGroupMessageFormat">Birthday Message to Group</label>
-  <textarea id="birthdayGroupMessageFormat">🎂 *Happy Birthday, {{fullName}}!* 🎉
-
-Please join us in wishing {{fullName}} a very happy birthday.</textarea>
-
-      <button type="button" onclick="saveConfig()">Save Configuration</button>
-      <div class="status" id="saveResult"></div>
-    </div>
-
-    <div class="card">
-      <h2>Teacher Birthdays</h2>
-      <p>Birthdays are read from the database and shown for this month and next month.</p>
-      <table class="birthday-list">
-        <thead><tr><th>Month</th><th>Date</th><th>Teacher</th></tr></thead>
-        <tbody id="birthdaysBody"><tr><td colspan="3">Loading birthdays...</td></tr></tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <h2>How to use</h2>
-      <ol>
-        <li>Clone the repository locally and install dependencies: <code>npm install</code>.</li>
-        <li>Start the bot: <code>npm start</code>.</li>
-        <li>Open the local interface at <code>http://localhost:3000</code> or use the buttons above.</li>
-        <li>Scan the WhatsApp QR code when prompted to authenticate the bot.</li>
-      </ol>
-      <p>The GitHub Pages page is a static control panel, but the actual bot runs on your local machine.</p>
+      <div class="stat">
+        <div class="stat-label">Next Duty Send</div>
+        <div class="stat-value" id="statNextSend">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Next Birthday Check</div>
+        <div class="stat-value" id="statNextBirthday">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" id="statUptime">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Group</div>
+        <div class="stat-value" id="statGroup">—</div>
+      </div>
     </div>
   </div>
 
-  <script>
-    const apiHost = 'http://localhost:3000';
+  <!-- Quick Actions -->
+  <div class="card">
+    <h2>Quick Actions</h2>
+    <div class="btn-row">
+      <button class="btn-success" onclick="sendDutyNow()">Send Duty Message Now</button>
+      <button class="btn-warn" onclick="sendBirthdayNow()">Send Birthday Messages Now</button>
+      <button class="btn-primary" onclick="sendTestGroup()">Send Test to Group</button>
+      <button class="btn-gray" onclick="sendTestPhone()">Send Test to Phone</button>
+    </div>
+    <div id="actionFeedback" class="feedback" style="display:none"></div>
+  </div>
 
-    async function checkBackend() {
-      try {
-        const response = await fetch(`${apiHost}/api/config`, { mode: 'cors' });
-        if (!response.ok) throw new Error('Server returned ' + response.status);
-        const config = await response.json();
-        document.getElementById('statusText').textContent = 'Local bot is online and ready.';
-        document.getElementById('sendTime').value = config.sendTime || '18:00';
-        document.getElementById('groupName').value = config.groupName || '';
-        document.getElementById('groupId').value = config.groupId || '';
-        document.getElementById('messageFormat').value = config.messageFormat || '';
-        document.getElementById('birthdayEnabled').checked = config.birthdayEnabled !== false;
-        document.getElementById('birthdayTime').value = config.birthdayTime || '06:00';
-        document.getElementById('birthdayMessageFormat').value = config.birthdayMessageFormat || '';
-        document.getElementById('birthdayGroupMessageFormat').value = config.birthdayGroupMessageFormat || '';
-        loadBirthdays();
-        return true;
-      } catch (error) {
-        document.getElementById('statusText').textContent = 'Local bot is not reachable. Start it with npm start.';
-        return false;
+  <!-- Tomorrow's Duties -->
+  <div class="card">
+    <h2>Tomorrow's Duties</h2>
+    <p>These teachers will receive duty messages at the scheduled time.</p>
+    <table>
+      <thead><tr><th>Teacher</th><th>Phone</th><th>Duty Date</th></tr></thead>
+      <tbody id="dutyBody"><tr><td colspan="3">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Send Personal Message -->
+  <div class="card">
+    <h2>Send Personal Message</h2>
+    <p>Send a duty reminder to selected teachers right now.</p>
+
+    <div style="margin-bottom:10px">
+      <label style="display:inline;cursor:pointer">
+        <input type="checkbox" id="selectAllDuties" onchange="toggleSelectAll()" style="width:auto;display:inline;margin-right:6px">
+        Select all
+      </label>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th class="checkbox-cell"></th><th>Teacher</th><th>Phone</th><th>Duty Date</th></tr></thead>
+        <tbody id="selectDutyBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <label for="customMessage">Custom Message (leave blank to use default template)</label>
+    <textarea id="customMessage" placeholder="Optional: write a custom message. Use {{fullName}}, {{teacherName}}, {{dutyDate}}, {{time}}."></textarea>
+
+    <div style="margin-top:14px">
+      <button class="btn-primary" onclick="sendToSelected()" style="max-width:280px">Send to Selected Teachers</button>
+    </div>
+    <div id="personalFeedback" class="feedback" style="display:none"></div>
+  </div>
+
+  <!-- Configuration -->
+  <div class="card">
+    <h2>Bot Configuration</h2>
+
+    <div class="two-col">
+      <div>
+        <label for="cfgSendTime">Duty Send Time (IST)</label>
+        <input type="time" id="cfgSendTime" />
+      </div>
+      <div>
+        <label for="cfgGroupName">WhatsApp Group Name</label>
+        <input type="text" id="cfgGroupName" placeholder="VSEC AVADH OFFICIAL" />
+      </div>
+    </div>
+
+    <label for="cfgGroupId">Group ID (optional — paste if group name is ambiguous)</label>
+    <input type="text" id="cfgGroupId" placeholder="919839607855-1430278592@g.us" />
+
+    <div style="margin-top:10px;padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+      <label for="groupSearchInput" style="margin-top:0">Find Group ID by Name</label>
+      <p style="font-size:.8rem;margin:2px 0 8px">Type (part of) the group's name exactly as it appears on the bot's phone.</p>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="groupSearchInput" placeholder="e.g. VSEC Computer" style="margin-top:0" />
+        <button class="btn-primary" onclick="findGroup()" style="max-width:140px;margin-top:0">Find</button>
+      </div>
+      <div id="groupSearchResults" style="margin-top:10px"></div>
+    </div>
+
+    <label for="cfgMessageFormat">Group Duty Message Template</label>
+    <textarea id="cfgMessageFormat"></textarea>
+    <p style="font-size:.8rem;color:#64748b;margin-top:4px">Variables: <code>{{duties}}</code> <code>{{time}}</code></p>
+
+    <label for="cfgPersonalFormat">Personal Duty Message Template</label>
+    <textarea id="cfgPersonalFormat"></textarea>
+    <p style="font-size:.8rem;color:#64748b;margin-top:4px">Variables: <code>{{fullName}}</code> <code>{{teacherName}}</code> <code>{{dutyDate}}</code> <code>{{time}}</code></p>
+
+    <details>
+      <summary>Birthday Message Settings</summary>
+
+      <div class="checkbox-row" style="margin-top:14px">
+        <input type="checkbox" id="cfgBirthdayEnabled" />
+        <label for="cfgBirthdayEnabled">Enable birthday messages</label>
+      </div>
+
+      <label for="cfgBirthdayTime">Birthday Send Time (IST)</label>
+      <input type="time" id="cfgBirthdayTime" />
+
+      <label for="cfgBirthdayMsg">Birthday Message to Teacher</label>
+      <textarea id="cfgBirthdayMsg"></textarea>
+
+      <label for="cfgBirthdayGroupMsg">Birthday Message to Group</label>
+      <textarea id="cfgBirthdayGroupMsg"></textarea>
+      <p style="font-size:.8rem;color:#64748b;margin-top:4px">Variables: <code>{{fullName}}</code> <code>{{teacherName}}</code> <code>{{date}}</code></p>
+
+      <h3 style="margin-top:22px;font-size:1rem">Birthday Image Card</h3>
+
+      <div class="checkbox-row" style="margin-top:10px">
+        <input type="checkbox" id="cfgBirthdayImage" />
+        <label for="cfgBirthdayImage">Send birthday wishes as an image card</label>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="cfgBirthdayCaption" />
+        <label for="cfgBirthdayCaption">Also include the text message as the image caption</label>
+      </div>
+
+      <label for="cfgBirthdayCardTheme">Card Theme</label>
+      <select id="cfgBirthdayCardTheme"></select>
+
+      <label for="cfgBirthdayCardHeadline">Card Headline</label>
+      <input type="text" id="cfgBirthdayCardHeadline" />
+
+      <label for="cfgBirthdayCardMsg">Card Text — to Teacher</label>
+      <textarea id="cfgBirthdayCardMsg"></textarea>
+
+      <label for="cfgBirthdayCardGroupMsg">Card Text — to Group</label>
+      <textarea id="cfgBirthdayCardGroupMsg"></textarea>
+
+      <label for="cfgBirthdayCardFooter">Card Footer</label>
+      <input type="text" id="cfgBirthdayCardFooter" />
+      <p style="font-size:.8rem;color:#64748b;margin-top:4px">Variables: <code>{{fullName}}</code> <code>{{teacherName}}</code> <code>{{date}}</code>. Emoji are dropped from the card artwork; they still appear in the caption.</p>
+
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-warn" onclick="previewBirthdayCard('personal')" style="max-width:220px">Preview Teacher Card</button>
+        <button class="btn-warn" onclick="previewBirthdayCard('group')" style="max-width:220px">Preview Group Card</button>
+      </div>
+      <div id="cardPreviewFeedback" class="feedback" style="display:none"></div>
+      <div id="cardPreviewWrap" style="display:none;margin-top:14px">
+        <img id="cardPreviewImg" alt="Birthday card preview"
+             style="width:100%;max-width:420px;border-radius:14px;border:1px solid #e2e8f0" />
+      </div>
+    </details>
+
+    <div style="margin-top:18px">
+      <button class="btn-primary" onclick="saveConfig()" style="max-width:220px">Save Configuration</button>
+    </div>
+    <div id="configFeedback" class="feedback" style="display:none"></div>
+  </div>
+
+  <!-- Birthdays -->
+  <div class="card">
+    <h2>Upcoming Birthdays</h2>
+    <p>Teachers with birthdays this month and next month.</p>
+    <table>
+      <thead><tr><th>Date</th><th>Teacher</th><th>Phone</th></tr></thead>
+      <tbody id="birthdayBody"><tr><td colspan="3">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+  function esc(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  }
+
+  function showFeedback(id, msg, type = 'ok') {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'feedback feedback-' + type;
+    el.style.display = 'block';
+  }
+
+  function fmtUptime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+
+  // Use relative URLs — works from any device that can reach this server
+  async function api(path, options) {
+    const res = await fetch(path, options);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  async function findGroup() {
+    const q = document.getElementById('groupSearchInput').value.trim();
+    const resultsEl = document.getElementById('groupSearchResults');
+    if (!q) {
+      resultsEl.innerHTML = '<span style="color:#b91c1c">Type a group name first</span>';
+      return;
+    }
+    resultsEl.innerHTML = 'Searching…';
+    try {
+      const data = await api(`/api/groups?name=${encodeURIComponent(q)}`);
+      if (!data.groups || data.groups.length === 0) {
+        resultsEl.innerHTML = '<span style="color:#b91c1c">No matching group found. Make sure the bot\'s WhatsApp account is a member of it, and try a shorter/partial name.</span>';
+        return;
       }
+      resultsEl.innerHTML = data.groups.map(g => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;margin-top:6px">
+          <div style="overflow:hidden">
+            <div style="font-weight:600">${esc(g.name)}</div>
+            <div style="font-size:.78rem;color:#64748b;word-break:break-all">${esc(g.id)}</div>
+          </div>
+          <button class="btn-gray" style="max-width:120px;margin-top:0;flex-shrink:0" onclick="useGroupId('${esc(g.id)}')">Use this ID</button>
+        </div>
+      `).join('');
+    } catch (error) {
+      resultsEl.innerHTML = '<span style="color:#b91c1c">Error: ' + esc(error.message) + '</span>';
     }
+  }
 
-    function openLocalInterface() {
-      window.open('http://localhost:3000', '_blank');
+  function useGroupId(id) {
+    document.getElementById('cfgGroupId').value = id;
+    showFeedback('configFeedback', 'Group ID filled in — click Save Configuration below to apply it.', 'info');
+  }
+
+  let allDuties = [];
+
+  function getTomorrowIST() {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    ist.setDate(ist.getDate() + 1);
+    const dd = String(ist.getDate()).padStart(2, '0');
+    const mm = String(ist.getMonth() + 1).padStart(2, '0');
+    return `${dd}-${mm}-${ist.getFullYear()}`;
+  }
+
+  async function refreshStatus() {
+    try {
+      const s = await api('/api/status');
+      document.getElementById('statReady').innerHTML = s.ready
+        ? '<span class="badge badge-green">Connected</span>'
+        : '<span class="badge badge-red">Disconnected</span>';
+      document.getElementById('statTime').textContent = s.istTime || '—';
+      document.getElementById('statNextSend').textContent = s.nextSend ? s.nextSend.split(',')[1]?.trim() || s.nextSend : '—';
+      document.getElementById('statNextBirthday').textContent = s.nextBirthday ? s.nextBirthday.split(',')[1]?.trim() || s.nextBirthday : '—';
+      document.getElementById('statUptime').textContent = s.uptime ? fmtUptime(s.uptime) : '—';
+      document.getElementById('statGroup').textContent = s.config?.groupName || '—';
+    } catch (e) {
+      document.getElementById('statReady').innerHTML = '<span class="badge badge-red">Offline</span>';
     }
+  }
 
-    async function showResult(elementId, message, success = true) {
-      const el = document.getElementById(elementId);
-      el.textContent = message;
-      el.style.color = success ? '#0f766e' : '#b91c1c';
+  async function loadConfig() {
+    try {
+      const c = await api('/api/config');
+      document.getElementById('cfgSendTime').value = c.sendTime || '13:00';
+      document.getElementById('cfgGroupName').value = c.groupName || '';
+      document.getElementById('cfgGroupId').value = c.groupId || '';
+      document.getElementById('cfgMessageFormat').value = c.messageFormat || '';
+      document.getElementById('cfgPersonalFormat').value = c.personalMessageFormat || '';
+      document.getElementById('cfgBirthdayEnabled').checked = c.birthdayEnabled !== false;
+      document.getElementById('cfgBirthdayTime').value = c.birthdayTime || '06:00';
+      document.getElementById('cfgBirthdayMsg').value = c.birthdayMessageFormat || '';
+      document.getElementById('cfgBirthdayGroupMsg').value = c.birthdayGroupMessageFormat || '';
+      document.getElementById('cfgBirthdayImage').checked = c.birthdayImageEnabled !== false;
+      document.getElementById('cfgBirthdayCaption').checked = c.birthdayCaptionEnabled !== false;
+      document.getElementById('cfgBirthdayCardHeadline').value = c.birthdayCardHeadline || '';
+      document.getElementById('cfgBirthdayCardMsg').value = c.birthdayCardMessageFormat || '';
+      document.getElementById('cfgBirthdayCardGroupMsg').value = c.birthdayCardGroupMessageFormat || '';
+      document.getElementById('cfgBirthdayCardFooter').value = c.birthdayCardFooter || '';
+      await loadCardThemes(c.birthdayCardTheme || 'confetti');
+    } catch (e) {
+      // silently ignore, status card already shows offline
     }
+  }
 
-    async function sendTestGroup() {
-      try {
-        const response = await fetch(`${apiHost}/send-to-group`, { method: 'POST', mode: 'cors' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to send');
-        showResult('actionResult', 'Test message sent to group successfully.');
-      } catch (error) {
-        showResult('actionResult', error.message, false);
-      }
+  async function loadCardThemes(selected) {
+    const el = document.getElementById('cfgBirthdayCardTheme');
+    try {
+      const data = await api('/api/birthday-card-themes');
+      el.innerHTML = data.themes.map(t =>
+        `<option value="${esc(t.key)}"${t.key === selected ? ' selected' : ''}>${esc(t.label)}</option>`).join('');
+    } catch (e) {
+      el.innerHTML = `<option value="${esc(selected)}" selected>${esc(selected)}</option>`;
     }
+  }
 
-    async function sendTestPhone() {
-      const phone = prompt('Enter your phone number (e.g., 9839607855):');
-      if (!phone) return;
-      try {
-        const response = await fetch(`${apiHost}/send-test`, {
-          method: 'POST',
-          mode: 'cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to send');
-        showResult('actionResult', 'Test message sent to phone successfully.');
-      } catch (error) {
-        showResult('actionResult', error.message, false);
-      }
+  function previewBirthdayCard(type) {
+    const params = new URLSearchParams({
+      type,
+      name: 'Priya Sharma',
+      theme: document.getElementById('cfgBirthdayCardTheme').value || 'confetti',
+      headline: document.getElementById('cfgBirthdayCardHeadline').value || '',
+      footer: document.getElementById('cfgBirthdayCardFooter').value || '',
+      message: (type === 'group'
+        ? document.getElementById('cfgBirthdayCardGroupMsg').value
+        : document.getElementById('cfgBirthdayCardMsg').value) || '',
+      t: Date.now()
+    });
+
+    showFeedback('cardPreviewFeedback', 'Rendering preview…', 'info');
+    const img = document.getElementById('cardPreviewImg');
+    img.onload = () => {
+      document.getElementById('cardPreviewWrap').style.display = 'block';
+      showFeedback('cardPreviewFeedback', 'Preview uses unsaved values — remember to save.');
+    };
+    img.onerror = () => showFeedback('cardPreviewFeedback', 'Could not render the preview.', 'err');
+    img.src = `/api/birthday-card-preview?${params.toString()}`;
+  }
+
+  async function loadDuties() {
+    try {
+      allDuties = await api('/api/duties');
+      const tomorrow = getTomorrowIST();
+      const tomorrowDuties = allDuties.filter(d => d.Duty === tomorrow);
+
+      // Tomorrow's duties preview
+      document.getElementById('dutyBody').innerHTML = tomorrowDuties.length
+        ? tomorrowDuties.map(d => `<tr><td>${esc(d.Teacher)}</td><td>${esc(d.Phone)}</td><td>${esc(d.Duty)}</td></tr>`).join('')
+        : `<tr><td colspan="3" style="color:#94a3b8">No duties found for tomorrow (${tomorrow}).</td></tr>`;
+
+      // Selectable table for personal send
+      document.getElementById('selectDutyBody').innerHTML = allDuties.length
+        ? allDuties.map(d => `
+          <tr>
+            <td class="checkbox-cell"><input type="checkbox" class="duty-cb" data-phone="${esc(d.Phone)}" data-teacher="${esc(d.Teacher)}" data-date="${esc(d.Duty)}" /></td>
+            <td>${esc(d.Teacher)}</td>
+            <td>${esc(d.Phone)}</td>
+            <td>${esc(d.Duty)}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="4" style="color:#94a3b8">No duties in database.</td></tr>';
+    } catch (e) {
+      document.getElementById('dutyBody').innerHTML = `<tr><td colspan="3" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+      document.getElementById('selectDutyBody').innerHTML = `<tr><td colspan="4" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
     }
+  }
 
-    async function sendDutyMessage() {
-      try {
-        const response = await fetch(`${apiHost}/send-duty`, { method: 'POST', mode: 'cors' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to send duty');
-        showResult('actionResult', 'Duty message sent successfully.');
-      } catch (error) {
-        showResult('actionResult', error.message, false);
-      }
+  async function loadBirthdays() {
+    try {
+      const data = await api('/api/birthdays');
+      const currentMonth = new Date().getMonth() + 1;
+      document.getElementById('birthdayBody').innerHTML = data.birthdays.length
+        ? data.birthdays.map(b => {
+            const dob = b.DOB || '';
+            const day = dob.slice(8, 10) + '/' + dob.slice(5, 7);
+            const tag = Number(dob.slice(5, 7)) === currentMonth
+              ? '<span class="badge badge-green" style="font-size:.72rem">This month</span>'
+              : '<span class="badge badge-yellow" style="font-size:.72rem">Next month</span>';
+            return `<tr><td>${day} ${tag}</td><td>${esc(b.Teacher)}</td><td>${esc(b.Phone)}</td></tr>`;
+          }).join('')
+        : '<tr><td colspan="3" style="color:#94a3b8">No birthdays found.</td></tr>';
+    } catch (e) {
+      document.getElementById('birthdayBody').innerHTML = `<tr><td colspan="3" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
     }
+  }
 
-    async function sendBirthdayMessages() {
-      try {
-        const response = await fetch(`${apiHost}/send-birthday`, { method: 'POST', mode: 'cors' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to send birthdays');
-        showResult('actionResult', `Birthday messages processed: ${data.summary.sent} sent, ${data.summary.failed} failed.`);
-      } catch (error) {
-        showResult('actionResult', error.message, false);
-      }
+  function toggleSelectAll() {
+    const checked = document.getElementById('selectAllDuties').checked;
+    document.querySelectorAll('.duty-cb').forEach(cb => cb.checked = checked);
+  }
+
+  async function sendDutyNow() {
+    showFeedback('actionFeedback', 'Sending duty message…', 'info');
+    try {
+      await api('/send-duty', { method: 'POST' });
+      showFeedback('actionFeedback', 'Duty message sent successfully.');
+    } catch (e) {
+      showFeedback('actionFeedback', e.message, 'err');
     }
+  }
 
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+  async function sendBirthdayNow() {
+    showFeedback('actionFeedback', 'Sending birthday messages…', 'info');
+    try {
+      const d = await api('/send-birthday', { method: 'POST' });
+      showFeedback('actionFeedback', `Birthday messages: ${d.summary?.sent ?? 0} sent, ${d.summary?.failed ?? 0} failed.`);
+    } catch (e) {
+      showFeedback('actionFeedback', e.message, 'err');
     }
+  }
 
-    async function loadBirthdays() {
-      try {
-        const response = await fetch(`${apiHost}/api/birthdays`, { mode: 'cors' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to load birthdays');
-        const currentMonth = new Date().getMonth() + 1;
-        document.getElementById('birthdaysBody').innerHTML = data.birthdays.length
-          ? data.birthdays.map(birthday => {
-              const date = birthday.DOB.slice(5).split('-').reverse().join('-');
-              const month = Number(birthday.DOB.slice(5, 7)) === currentMonth ? 'Current month' : 'Next month';
-              return `<tr><td>${month}</td><td>${escapeHtml(date)}</td><td>${escapeHtml(birthday.Teacher || '')}</td></tr>`;
-            }).join('')
-          : '<tr><td colspan="3">No birthdays found.</td></tr>';
-      } catch (error) {
-        document.getElementById('birthdaysBody').innerHTML = `<tr><td colspan="3">${escapeHtml(error.message)}</td></tr>`;
-      }
+  async function sendTestGroup() {
+    showFeedback('actionFeedback', 'Sending test message to group…', 'info');
+    try {
+      await api('/send-to-group', { method: 'POST' });
+      showFeedback('actionFeedback', 'Test message sent to group.');
+    } catch (e) {
+      showFeedback('actionFeedback', e.message, 'err');
     }
+  }
 
-    async function saveConfig() {
-      try {
-        const payload = {
-          sendTime: document.getElementById('sendTime').value,
-          groupName: document.getElementById('groupName').value,
-          groupId: document.getElementById('groupId').value,
-          messageFormat: document.getElementById('messageFormat').value,
-          birthdayEnabled: document.getElementById('birthdayEnabled').checked,
-          birthdayTime: document.getElementById('birthdayTime').value,
-          birthdayMessageFormat: document.getElementById('birthdayMessageFormat').value,
-          birthdayGroupMessageFormat: document.getElementById('birthdayGroupMessageFormat').value
-        };
-        const response = await fetch(`${apiHost}/api/config`, {
-          method: 'POST',
-          mode: 'cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to save config');
-        showResult('saveResult', 'Configuration saved successfully.');
-      } catch (error) {
-        showResult('saveResult', error.message, false);
-      }
+  async function sendTestPhone() {
+    const phone = prompt('Enter phone number (e.g. 9839607855):');
+    if (!phone) return;
+    showFeedback('actionFeedback', 'Sending test message…', 'info');
+    try {
+      await api('/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      showFeedback('actionFeedback', `Test message sent to ${phone}.`);
+    } catch (e) {
+      showFeedback('actionFeedback', e.message, 'err');
     }
+  }
 
-    checkBackend();
-    loadBirthdays();
-  </script>
+  async function sendToSelected() {
+    const selected = [...document.querySelectorAll('.duty-cb:checked')];
+    if (!selected.length) {
+      showFeedback('personalFeedback', 'Please select at least one teacher.', 'err');
+      return;
+    }
+    const recipients = selected.map(cb => ({
+      phone: cb.dataset.phone,
+      teacher: { Teacher: cb.dataset.teacher },
+      dutyDate: cb.dataset.date
+    }));
+    const messageFormat = document.getElementById('customMessage').value.trim() || null;
+    showFeedback('personalFeedback', `Sending to ${recipients.length} teacher(s)…`, 'info');
+    try {
+      const d = await api('/send-personal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipients, messageFormat })
+      });
+      showFeedback('personalFeedback', `Done — ${d.summary.sent} sent, ${d.summary.failed} failed.`);
+    } catch (e) {
+      showFeedback('personalFeedback', e.message, 'err');
+    }
+  }
+
+  async function saveConfig() {
+    const payload = {
+      sendTime: document.getElementById('cfgSendTime').value,
+      groupName: document.getElementById('cfgGroupName').value,
+      groupId: document.getElementById('cfgGroupId').value,
+      messageFormat: document.getElementById('cfgMessageFormat').value,
+      personalMessageFormat: document.getElementById('cfgPersonalFormat').value,
+      birthdayEnabled: document.getElementById('cfgBirthdayEnabled').checked,
+      birthdayTime: document.getElementById('cfgBirthdayTime').value,
+      birthdayMessageFormat: document.getElementById('cfgBirthdayMsg').value,
+      birthdayGroupMessageFormat: document.getElementById('cfgBirthdayGroupMsg').value,
+      birthdayImageEnabled: document.getElementById('cfgBirthdayImage').checked,
+      birthdayCaptionEnabled: document.getElementById('cfgBirthdayCaption').checked,
+      birthdayCardTheme: document.getElementById('cfgBirthdayCardTheme').value,
+      birthdayCardHeadline: document.getElementById('cfgBirthdayCardHeadline').value,
+      birthdayCardFooter: document.getElementById('cfgBirthdayCardFooter').value,
+      birthdayCardMessageFormat: document.getElementById('cfgBirthdayCardMsg').value,
+      birthdayCardGroupMessageFormat: document.getElementById('cfgBirthdayCardGroupMsg').value
+    };
+    showFeedback('configFeedback', 'Saving…', 'info');
+    try {
+      await api('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      showFeedback('configFeedback', 'Configuration saved. Schedule updated.');
+      refreshStatus();
+    } catch (e) {
+      showFeedback('configFeedback', e.message, 'err');
+    }
+  }
+
+  // Initial load
+  refreshStatus();
+  loadConfig();
+  loadDuties();
+  loadBirthdays();
+
+  // Auto-refresh status every 30 seconds
+  setInterval(refreshStatus, 30000);
+</script>
 </body>
 </html>
