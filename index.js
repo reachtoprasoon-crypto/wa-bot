@@ -378,12 +378,24 @@ async function findGroupsInStore(query) {
   }, q);
 }
 
-function getChatIdForPhone(phone) {
+/**
+ * Resolve a phone number to WhatsApp's canonical chat ID via getNumberId,
+ * rather than guessing `${phone}@c.us`. WhatsApp has been migrating some
+ * accounts to privacy-preserving `@lid` addressing; a message sent to a
+ * hand-built `@c.us` ID for one of those accounts can appear to succeed
+ * (the send promise resolves without throwing) while never actually being
+ * delivered, since it's the wrong identity for that contact.
+ */
+async function resolveChatId(phone) {
   let phoneFormatted = (phone || '').replace(/\D/g, '');
   if (phoneFormatted.length === 10) {
     phoneFormatted = `91${phoneFormatted}`;
   }
-  return `${phoneFormatted}@c.us`;
+  const numberId = await client.getNumberId(phoneFormatted);
+  if (!numberId) {
+    throw new Error(`${phoneFormatted} is not registered on WhatsApp`);
+  }
+  return numberId._serialized;
 }
 
 /**
@@ -415,12 +427,12 @@ async function sendPersonalMessages(duties) {
         // If it's 12 digits but doesn't start with 91, it might be in wrong format
         console.log(`⚠️  Phone number for ${teacherName} doesn't start with 91: ${phoneFormatted}`);
       }
-      
-      const chatId = `${phoneFormatted}@c.us`;
-      
+
+      const chatId = await resolveChatId(phoneFormatted);
+
       const personalMessage = formatPersonalMessage(duty, duty.Duty);
       console.log(`Sending personal message to ${teacherName} (${phoneFormatted})`);
-      
+
       // Send personal message
       const result = await client.sendMessage(chatId, personalMessage);
       const messageId = result?.id?._serialized || result?.id?.id || result?.id || 'N/A';
@@ -597,7 +609,7 @@ async function sendBirthdayMessages() {
       );
       if (!teacher.Phone) throw new Error('No phone number found');
       await sendBirthdayWish(
-        getChatIdForPhone(teacher.Phone),
+        await resolveChatId(teacher.Phone),
         teacher,
         config.birthdayMessageFormat,
         config.birthdayCardMessageFormat
@@ -957,8 +969,8 @@ app.post('/send-test', async (req, res) => {
     }
     
     const testMessage = `[TEST] WhatsApp Bot is working! Sent at ${getISTTime()}`;
-    const chatId = phone + '@c.us';
-    
+    const chatId = await resolveChatId(phone);
+
     await client.sendMessage(chatId, testMessage);
     res.json({ success: true, message: `Test message sent to ${phone}` });
   } catch (error) {
@@ -1097,7 +1109,7 @@ app.post('/send-personal', async (req, res) => {
           phoneFormatted = '91' + phoneFormatted;
         }
 
-        const chatId = `${phoneFormatted}@c.us`;
+        const chatId = await resolveChatId(phoneFormatted);
 
         // Use provided messageFormat or fall back to config
         const template = (messageFormat && messageFormat.trim()) ? messageFormat : config.personalMessageFormat;
@@ -1194,7 +1206,7 @@ app.post('/send-bulk', async (req, res) => {
           phoneFormatted = '91' + phoneFormatted;
         }
 
-        const chatId = `${phoneFormatted}@c.us`;
+        const chatId = await resolveChatId(phoneFormatted);
 
         // Replace template variables in message
         let msg = message;
@@ -1284,6 +1296,24 @@ app.get('/api/groups', async (req, res) => {
   try {
     const groups = await findGroupsInStore(req.query.name);
     res.json({ groups });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/check-number', async (req, res) => {
+  if (!isClientReady) {
+    return res.status(503).json({ error: 'WhatsApp client not ready yet' });
+  }
+  try {
+    let phoneFormatted = (req.query.phone || '').replace(/\D/g, '');
+    if (phoneFormatted.length === 10) phoneFormatted = '91' + phoneFormatted;
+    const numberId = await client.getNumberId(phoneFormatted);
+    res.json({
+      phone: phoneFormatted,
+      registered: !!numberId,
+      canonicalId: numberId?._serialized || null,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1395,9 +1425,9 @@ app.post('/send-personal-message', async (req, res) => {
     if (phoneFormatted.length === 10) {
       phoneFormatted = '91' + phoneFormatted;
     }
-    
-    const chatId = `${phoneFormatted}@c.us`;
-    
+
+    const chatId = await resolveChatId(phoneFormatted);
+
     let msg;
     if (message && message.trim()) {
       msg = message;
