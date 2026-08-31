@@ -2,6 +2,7 @@ services:
   wa-bot:
     build: .
     container_name: duty-whatsapp-bot
+    restart: unless-stopped
     volumes:
       - bot-session:/app/.wwebjs_auth
     environment:
