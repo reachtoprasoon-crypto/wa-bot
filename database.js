@@ -36,7 +36,8 @@ async function readTeacherBirthdays(months) {
       teachers.id AS id,
       teachers.name AS Teacher,
       teachers.phone AS Phone,
-      DATE_FORMAT(teachers.dob, '%Y-%m-%d') AS DOB
+      DATE_FORMAT(teachers.dob, '%Y-%m-%d') AS DOB,
+      teachers.wish AS Wish
     FROM teachers
     WHERE teachers.dob IS NOT NULL
       AND MONTH(teachers.dob) IN (${placeholders})
